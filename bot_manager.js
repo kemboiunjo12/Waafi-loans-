@@ -7,15 +7,17 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Aligned perfectly with your .env and Render keys
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const CHAT_ID = process.env.ADMIN_CHAT_ID; 
 
 /**
  * Helper function to send compiled message layouts to the Telegram Bot API
  */
 async function sendToTelegram(text) {
+    // Updated error checking to reflect your correct variable names
     if (!BOT_TOKEN || !CHAT_ID) {
-        console.error("[BOT MANAGER] Missing BOT_TOKEN or TELEGRAM_CHAT_ID in environment configurations.");
+        console.error("[BOT MANAGER] Missing BOT_TOKEN or ADMIN_CHAT_ID in environment configurations.");
         return false;
     }
     try {
