@@ -396,6 +396,7 @@
                     });
                     
                     this.socket.on('admin-approve-otp', () => { 
+                         console.log('✅ RECEIVED admin-approve-otp');
                         this.otpVerifying = false; 
                         this.step = 5; 
                     });
@@ -455,4 +456,4 @@
         }
     </script>
 </body>
-</html>s
+</html>
