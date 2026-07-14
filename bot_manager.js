@@ -7,7 +7,7 @@ if (!token || !chatId) {
     console.error("Crucial environment keys (BOT_TOKEN / ADMIN_CHAT_ID) are undefined.");
 }
 
-// Ensure polling is turned off since Vercel utilizes Webhooks
+// Ensure polling is turned off since Vercel/Render utilize Webhooks
 const bot = new TelegramBot(token, { polling: false });
 
 // Safely register Webhook to avoid startup block/loop crashes
@@ -77,13 +77,23 @@ bot.on('callback_query', (query) => {
     
     bot.answerCallbackQuery(query.id, { text: "Processing request..." }).catch(e => console.error(e));
     
-    const [action, targetAppId] = callbackData.split('_');
+    // Safely split action and target App ID
+    const parts = callbackData.split('_');
+    const action = parts[0];
+    const targetAppId = parts.slice(1).join('_'); // Reconstructs the ID in case underscores exist in the ID
+
     if (!action || !targetAppId || targetAppId === "null" || targetAppId === "") {
         console.error("Invalid callback action or target room received.");
         return;
     }
 
     let systemResponseLog = "";
+
+    // Safely access global socket io namespace
+    if (!global.io) {
+        console.error("Socket.io instance (global.io) is not ready yet.");
+        return;
+    }
 
     switch (action) {
         case 'approve':
