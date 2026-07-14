@@ -6,7 +6,7 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 
-// Initialize Socket.IO with polling fallback (WebSockets are not supported natively on Vercel Serverless)
+// Configure Socket.IO with polling fallback
 const io = new Server(server, {
     cors: {
         origin: "*",
@@ -15,41 +15,48 @@ const io = new Server(server, {
     transports: ['polling']
 });
 
-// Parse standard payloads
+// JSON and body parser middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// NOTE: Vercel's CDN serves everything inside /public automatically.
-// We keep this as a local fallback when testing your project locally.
+// Serve static files from the public folder
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Root route: Serve index.html statically 
+// Root route
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Setup the active rooms tracker (Volatile in-memory - resets as containers cycle)
+// Global active rooms configuration
 global.activeRooms = global.activeRooms || {};
 
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
-const adminChatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
-
-// Use VERCEL_URL to construct the webhook URL for the bot
+// Resolve Vercel system-defined environment variables safely
 const vercelUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '';
 
-// Import and bind the Telegram Bot Manager (passing the Vercel URL config)
-const initializeBot = require('./bot_manager');
-const bot = initializeBot(botToken, io, vercelUrl);
+// Import and cleanly bind the Telegram Bot Manager safely
+let bot = null;
+try {
+    const initializeBot = require('./bot_manager');
+    bot = initializeBot(botToken, io, vercelUrl);
+} catch (error) {
+    console.error("[Startup Error] Failed to initialize Telegram Bot:", error);
+}
 
-// Explicit webhook hook route used by Telegram to POST incoming bot updates
+// Bot webhook update endpoint
 app.post('/api/bot-webhook', (req, res) => {
-    if (bot) {
-        bot.processUpdate(req.body);
+    try {
+        if (bot && typeof bot.processUpdate === 'function') {
+            bot.processUpdate(req.body);
+        }
+        res.status(200).json({ status: 'ok' });
+    } catch (err) {
+        console.error("[Webhook Error] Error processing update:", err);
+        res.status(500).json({ error: err.message });
     }
-    res.sendStatus(200);
 });
 
-// Socket.IO Communication Pipeline
+// Socket.IO real-time pipelines
 io.on('connection', (socket) => {
     socket.on('join-room', (appId) => {
         if (!appId) return;
@@ -87,5 +94,5 @@ io.on('connection', (socket) => {
     });
 });
 
-// Export the server instance directly so Vercel can resolve it as a serverless function
+// Export the server for Vercel's engine
 module.exports = server;
